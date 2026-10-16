@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     environment:
       POSTGRES_DB: study_agent
       POSTGRES_USER: study_agent
@@ -23,8 +23,16 @@ services:
       ENABLE_FAKE_PROVIDER: ${ENABLE_FAKE_PROVIDER:-false}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8000}
       ALLOW_PRIVATE_PROVIDER_URLS: ${ALLOW_PRIVATE_PROVIDER_URLS:-false}
+      MATERIAL_STORAGE_DIR: /workspace/data/materials
+      MATERIAL_MAX_BYTES: ${MATERIAL_MAX_BYTES:-20971520}
+      MATERIAL_MAX_SECTIONS: ${MATERIAL_MAX_SECTIONS:-20}
+      MATERIAL_WORKER_ENABLED: ${MATERIAL_WORKER_ENABLED:-true}
+      PGVECTOR_ENABLED: ${PGVECTOR_ENABLED:-false}
+    volumes:
+      - material_data:/workspace/data/materials
     depends_on:
       db:
         condition: service_healthy
 volumes:
   postgres_data:
+  material_data:

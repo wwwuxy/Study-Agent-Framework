@@ -21,6 +21,8 @@ from app.planning.policy import choose_action
 from app.providers.base import ProviderError
 from app.providers.compatible import CompatibleAdapter
 from app.providers.fake import FakeAdapter
+from app.providers.fake_files import FakeFileAdapter
+from app.providers.native import NativeFileAdapter
 
 
 def digest(value):
@@ -31,17 +33,22 @@ def get_adapter(request, config):
     if request.app.state.adapter_factory:
         return request.app.state.adapter_factory(config)
     settings = request.app.state.settings
-    if config.provider_type == "fake":
+    if config.provider_type in {"fake", "fake_files"}:
         if not settings.enable_fake_provider:
             raise ProviderError("demo_disabled", "离线演示模式未启用", 422)
-        return FakeAdapter()
-    return CompatibleAdapter(
+        return (
+            FakeFileAdapter(config.embedding_model) if config.provider_type == "fake_files" else FakeAdapter()
+        )
+    adapter_class = NativeFileAdapter if config.provider_type == "openai_files" else CompatibleAdapter
+    extra = {"embedding_model": config.embedding_model} if adapter_class is NativeFileAdapter else {}
+    return adapter_class(
         config.base_url,
         request.app.state.vault.decrypt(config.encrypted_api_key),
         config.chat_model,
         config.timeout_seconds,
         settings.structured_retries,
         settings.allow_private_provider_urls,
+        **extra,
     )
 
 

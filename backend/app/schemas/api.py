@@ -13,9 +13,10 @@ class Credentials(StrictModel):
 
 class ProviderCreate(StrictModel):
     name: str = Field(min_length=1, max_length=100)
-    provider_type: Literal["openai_compatible", "fake"] = "openai_compatible"
+    provider_type: Literal["openai_compatible", "openai_files", "fake", "fake_files"] = "openai_compatible"
     base_url: str = Field(default="https://api.openai.com/v1", max_length=2048)
     chat_model: str = Field(min_length=1, max_length=200)
+    embedding_model: str | None = Field(default=None, min_length=1, max_length=200)
     api_key: SecretStr = Field(min_length=1, max_length=4096)
     timeout_seconds: int = Field(default=30, ge=5, le=60)
 
@@ -24,6 +25,7 @@ class ProviderUpdate(StrictModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     base_url: str | None = Field(default=None, min_length=1, max_length=2048)
     chat_model: str | None = Field(default=None, min_length=1, max_length=200)
+    embedding_model: str | None = Field(default=None, min_length=1, max_length=200)
     api_key: SecretStr | None = Field(default=None, min_length=1, max_length=4096)
     timeout_seconds: int | None = Field(default=None, ge=5, le=60)
 
@@ -41,7 +43,8 @@ class SpaceCreate(IdempotentRequest):
 
 
 class SpaceUpdate(StrictModel):
-    provider_id: str
+    provider_id: str | None = None
+    allow_general_knowledge: bool | None = None
 
 
 class AttemptSubmit(IdempotentRequest):

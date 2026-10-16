@@ -1,4 +1,4 @@
-# M1 API
+# M1 / M2 API
 
 前缀 `/api/v1`。运行服务后访问 `/docs`、`/redoc`、`/openapi.json`；静态快照 `docs/openapi.json`。会话采用 HttpOnly Cookie，所有学习对象需要登录。写接口校验 Origin。
 
@@ -32,4 +32,29 @@
 
 模型错误代码包括 `invalid_api_key`、`provider_timeout`、`rate_limited`、`provider_unavailable`、`invalid_structured_output`、`invalid_question_mapping`、`duplicate_question`、`capability_not_supported`。有限重试失败后由用户再次发起，历史数据不清空。
 
-教材、review、notifications、jobs 端点未注册，避免把后续阶段标成已实现。
+review 与 notifications 端点未注册，属于 M3 / M4。
+
+
+## M2 资料与任务
+
+| 方法 / 路径 | 行为 |
+|---|---|
+| POST /study-spaces/{id}/materials | PDF 原始二进制上传，202 返回资料与任务 ID |
+| GET /study-spaces/{id}/materials | 资料与待清理墓碑列表 |
+| GET /study-spaces/{id}/materials/{asset_id} | 资料状态、章节、关键词和概念 |
+| GET /study-spaces/{id}/materials/{asset_id}/download | 本人鉴权后的原始附件 |
+| POST /study-spaces/{id}/materials/{asset_id}/reindex | 重新授权，使用当前空间模型重新索引 |
+| DELETE /study-spaces/{id}/materials/{asset_id} | 立即移除本地原文与索引，返回远端清理任务 |
+| POST /study-spaces/{id}/materials/search | query、mode=auto/keyword/embedding、limit（1–10） |
+| GET /jobs/{job_id} | 本人的任务状态、阶段、进度、错误 |
+| POST /jobs/{job_id}/run | 手动处理 queued／过期 leased 任务 |
+| POST /jobs/{job_id}/cancel | 取消索引（清理不可取消） |
+| POST /jobs/{job_id}/retry | 对失败任务创建保留检查点的新任务，需 idempotency_key |
+
+上传使用原始 PDF 请求体，`Content-Type: application/pdf`；请求头 `X-Filename` 为 URL 编码文件名，`Idempotency-Key` 为幂等键，`X-File-Consent: true` 表示本次文件处理授权，可选 `X-Use-Embeddings: true` 同意远端向量生成。不是 multipart。重索引请求体为 `{"idempotency_key":"...","consent":true,"use_embeddings":false}`。
+
+ProviderCreate 新增 provider_type=`openai_files` / `fake_files` 和可选 embedding_model。改动后重新检测；文件与向量分别返回实际能力。空间 PATCH 可更新 `allow_general_knowledge`（默认 false），也可仅切换 provider_id。
+
+任务状态为 queued/running/succeeded/failed/cancelled。202 仅表示已接受，处理结果查 job；常见错误包括 file_consent_required、file_too_large（413）、unsupported_file_type、unsafe_file、invalid_idempotency_key、provider_config_changed、insufficient_material_evidence、invalid_citation、remote_cleanup_required。失败任务可能返回 HTTP 200 查询成功且 status=failed，调用方须检查状态字段。
+
+来源返回 source_id、document_id、study_space_id、filename、heading、summary、locator、locator_verified 和 is_demo。题目及课堂新增 source_ids/citations/grounding，不改变参考答案保护；被删除资料的引用在读取时过滤。当前定位页码一律 null、未核实。详细行为见 [M2 文档](m2-materials.md)。

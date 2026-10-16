@@ -24,6 +24,7 @@ def public_space(space):
         "id": space.id,
         "goal": space.goal,
         "provider_id": space.provider_id,
+        "allow_general_knowledge": space.allow_general_knowledge,
         "daily_minutes": space.daily_minutes,
         "target_date": space.target_date,
         "expected_level": space.expected_level,
@@ -104,8 +105,11 @@ async def get_space(space_id: str, db=Depends(get_db), user=Depends(current_user
 @router.patch("/{space_id}")
 async def switch_provider(space_id: str, body: SpaceUpdate, db=Depends(get_db), user=Depends(current_user)):
     space = own_space(db, user.id, space_id)
-    config = own_provider(db, user.id, body.provider_id, require_tested=True)
-    space.provider_id = config.id
+    if body.provider_id is not None:
+        config = own_provider(db, user.id, body.provider_id, require_tested=True)
+        space.provider_id = config.id
+    if body.allow_general_knowledge is not None:
+        space.allow_general_knowledge = body.allow_general_knowledge
     return public_space(space)
 
 

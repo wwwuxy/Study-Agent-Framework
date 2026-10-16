@@ -1389,3 +1389,35 @@ footer {
     transition: none !important;
   }
 }
+
+.material-upload form {
+  display: grid;
+  gap: 14px;
+  margin-block: 20px;
+}
+.material-row,
+.citations article {
+  border-top: 1px solid var(--border, #e2e0d8);
+  padding-block: 20px;
+  overflow-wrap: anywhere;
+}
+.material-row p,
+.citations p {
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+.material-row progress {
+  width: 100%;
+  height: 8px;
+  margin-bottom: 16px;
+  accent-color: #698254;
+}
+.citations {
+  padding: 18px;
+  background: #f3f4ed;
+  border-radius: 12px;
+  margin-block: 20px;
+}
+.citations small {
+  color: #68695f;
+}

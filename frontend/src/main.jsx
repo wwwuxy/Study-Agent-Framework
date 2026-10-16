@@ -23,6 +23,7 @@ import {
 import { api, key } from "./api";
 import { createLatestRequest } from "./latestRequest";
 import "./styles.css";
+import Materials, { Citations } from "./Materials";
 
 const labels = { unknown: "待诊断", learning: "学习中", mastered: "已掌握" };
 const actions = {
@@ -251,6 +252,7 @@ function App() {
             ["overview", BookOpen, "学习概览"],
             ["classroom", Sparkles, "专属课堂"],
             ["knowledge", Network, "知识地图"],
+            ["materials", Layers, "私人教材"],
             ["history", History, "学习记录"],
             ["settings", Settings2, "模型与设置"],
           ].map(([id, Icon, title]) => (
@@ -308,6 +310,7 @@ function App() {
                   overview: "学习概览",
                   classroom: "专属课堂",
                   knowledge: "知识地图",
+                  materials: "私人教材",
                   history: "学习记录",
                   settings: "模型与设置",
                 }[page]
@@ -315,7 +318,7 @@ function App() {
             </b>
           </span>
           <span className="phase">
-            <span /> M1 · 学习闭环
+            <span /> M2 · 私人教材
           </span>
         </header>
         <div className="main-content">
@@ -359,8 +362,25 @@ function App() {
                     <code>{p.base_url}</code>
                     <div className="cap-list">
                       <span>聊天 {p.capabilities.chat ? "✓" : "待验证"}</span>
-                      <span>文件理解：未支持</span>
-                      <span>Embedding：未支持</span>
+                      <span>
+                        文件理解：
+                        {p.capabilities.file_input
+                          ? p.capabilities.supported_mime_types?.join("、")
+                          : "未验证或不支持"}
+                      </span>
+                      <span>
+                        远端 Embedding：
+                        {p.capabilities.embedding ? "已验证" : "未验证或不支持"}
+                      </span>
+                      {p.capabilities.is_demo && (
+                        <span>固定演示 · 未读取文件内容</span>
+                      )}
+                      {p.capabilities.file_error && (
+                        <span>文件检测：{p.capabilities.file_error}</span>
+                      )}
+                      {p.capabilities.retention_warning && (
+                        <span>{p.capabilities.retention_warning}</span>
+                      )}
                     </div>
                     <div className="button-row">
                       <button
@@ -464,6 +484,19 @@ function App() {
             </div>
           ) : (
             <>
+              {page === "materials" && (
+                <Materials
+                  key={user.id + sid}
+                  root={root}
+                  space={space}
+                  provider={currentProvider}
+                  maxBytes={config.material_max_bytes}
+                  onRefresh={async () => {
+                    await refreshLists();
+                    await refreshSpace();
+                  }}
+                />
+              )}
               {page === "overview" && (
                 <>
                   <PageTitle
@@ -711,6 +744,7 @@ function App() {
                       </span>
                       <h2>{lesson.title}</h2>
                       <div className="prose">{lesson.explanation}</div>
+                      <Citations sources={lesson.citations} root={root} />
                       <div className="example">
                         <b>一个具体的例子</b>
                         <p>{lesson.example}</p>
@@ -840,7 +874,7 @@ function App() {
           <footer>
             <span>StudyAgent Framework</span>
             <span>以目标为起点，以证据为方向。</span>
-            <span>BYOK / M1</span>
+            <span>BYOK / M2</span>
           </footer>
         </div>
       </main>
@@ -982,6 +1016,7 @@ function Question({ item, index, initial, onAnswer, onHint }) {
         <small>难度 {item.difficulty} / 5</small>
       </div>
       <h4>{item.prompt}</h4>
+      <Citations sources={item.citations} />
       {item.kind === "choice" ? (
         <div className="options">
           {Object.entries(item.options).map(([k, text]) => (
@@ -1065,19 +1100,23 @@ function ProviderForm({ existing, demo, busy, onSubmit }) {
     [url, setUrl] = useState(existing?.base_url || "https://api.openai.com/v1");
   const [model, setModel] = useState(existing?.chat_model || ""),
     [secret, setSecret] = useState("");
+  const [embeddingModel, setEmbeddingModel] = useState(
+    existing?.embedding_model || "",
+  );
+  const isDemo = kind === "fake" || kind === "fake_files";
   const [consent, setConsent] = useState(false);
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         const body = {
-          name: name || (kind === "fake" ? "离线演示" : "我的模型"),
-          chat_model: kind === "fake" ? "demo-model" : model,
+          name: name || (isDemo ? "离线演示" : "我的模型"),
+          chat_model: isDemo ? "demo-model" : model,
+          embedding_model: embeddingModel || null,
           base_url: url,
         };
         if (!existing) body.provider_type = kind;
-        if (secret || !existing)
-          body.api_key = kind === "fake" ? "demo" : secret;
+        if (secret || !existing) body.api_key = isDemo ? "demo" : secret;
         onSubmit(body);
       }}
     >
@@ -1091,7 +1130,17 @@ function ProviderForm({ existing, demo, busy, onSubmit }) {
             <option value="openai_compatible">
               OpenAI-compatible 聊天接口
             </option>
-            {demo && <option value="fake">离线演示（固定操作系统样例）</option>}
+            <option value="openai_files">
+              原生 PDF（Files + Responses，需检测）
+            </option>
+            {demo && (
+              <>
+                <option value="fake">离线演示（固定操作系统样例）</option>
+                <option value="fake_files">
+                  资料演示（固定样例，未读取上传内容）
+                </option>
+              </>
+            )}
           </select>
         </label>
       )}
@@ -1104,7 +1153,7 @@ function ProviderForm({ existing, demo, busy, onSubmit }) {
           maxLength={100}
         />
       </label>
-      {kind !== "fake" ? (
+      {!isDemo ? (
         <>
           <label>
             Base URL
@@ -1146,7 +1195,8 @@ function ProviderForm({ existing, demo, busy, onSubmit }) {
               onChange={(e) => setConsent(e.target.checked)}
             />
             <span>
-              我授权将学习目标、教学上下文和答案发送至此服务商；调用可能产生费用，数据保留遵循其政策。
+              我授权将学习目标、教学上下文和答案发送至此服务商；原生文件能力检测会上传随机标识测试
+              PDF。调用可能产生费用，数据保留遵循其政策。
             </span>
           </label>
         </>
@@ -1154,6 +1204,17 @@ function ProviderForm({ existing, demo, busy, onSubmit }) {
         <p className="hint">
           演示模式仅使用固定操作系统样例，不连接外部模型、不产生费用，不代表其他领域的真实教学结果。
         </p>
+      )}
+      {(kind === "openai_files" || kind === "fake_files") && (
+        <label>
+          远端 Embedding 模型（可选）
+          <input
+            value={embeddingModel}
+            onChange={(e) => setEmbeddingModel(e.target.value)}
+            maxLength={200}
+            placeholder="留空使用关键词 + 模型精排"
+          />
+        </label>
       )}
       <button className="primary full" disabled={!!busy}>
         {busy || "保存模型连接"}

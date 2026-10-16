@@ -12,6 +12,8 @@ def safe_text(value):
 
 def render_question(item):
     rows = [f"题目 {item['id']}", item["prompt"]]
+    if item.get("citations"):
+        rows.append(render_citations(item["citations"]))
     rows.extend(f"  {key}. {value}" for key, value in item.get("options", {}).items())
     return "\n".join(rows)
 
@@ -41,9 +43,18 @@ def human_output(data):
         return "\n".join(rows)
     if "items" in data:
         return data.get("notice", "") + "\n\n" + "\n\n".join(render_question(q) for q in data["items"])
+    if "filename" in data and "status" in data:
+        return f"{data['id']}  {data['filename']} · {data['status']}\n任务：{data.get('job_id')}\n{data.get('warning') or data.get('retention_notice', '')}"
+    if "results" in data:
+        return f"检索方式：{data.get('mode')}\n" + "\n\n".join(
+            f"{s['filename']} / {s['heading']}（模型提取，页码未核实）\n{s['summary']}\n来源：{s['source_id']}"
+            for s in data["results"]
+        )
     if "explanation" in data:
-        return f"{data['title']}\n\n{data['explanation']}\n\n示例：{data['example']}\n\n" + "\n\n".join(
-            render_question(q) for q in data["exercises"]
+        return (
+            render_citations(data.get("citations", []))
+            + f"{data['title']}\n\n{data['explanation']}\n\n示例：{data['example']}\n\n"
+            + "\n\n".join(render_question(q) for q in data["exercises"])
         )
     if "feedback" in data:
         return render_result(data)
@@ -60,3 +71,13 @@ def human_output(data):
     if "message" in data:
         return data["message"]
     return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def render_citations(sources):
+    if not sources:
+        return ""
+    return (
+        "教材证据（模型提取，页码未核实）：\n"
+        + "\n".join(f"  {s['filename']} / {s['heading']} · {s['source_id']}" for s in sources)
+        + "\n\n"
+    )

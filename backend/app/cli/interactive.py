@@ -1,6 +1,6 @@
 from app.cli.client import segment
 from app.cli.errors import CLIError
-from app.cli.render import render_question, render_result, safe_text
+from app.cli.render import render_citations, render_question, render_result, safe_text
 
 
 def ask(prompt, message):
@@ -45,6 +45,8 @@ def practice(client, root, items, attempts, prompt, emit, new_key):
 
 def classroom(client, root, lesson, prompt, emit, new_key):
     emit(f"{lesson['title']}\n\n{lesson['explanation']}\n\n示例：{lesson['example']}")
+    if lesson.get("citations"):
+        emit(render_citations(lesson["citations"]))
     if not lesson["completed"]:
         answer = ask(prompt, "读完请按回车记录阅读经历（/quit 退出）：")
         if answer == "/quit":

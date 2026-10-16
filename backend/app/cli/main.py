@@ -3,8 +3,10 @@ import getpass
 import json
 import os
 import sys
+import time
 import uuid
 from pathlib import Path
+from urllib.parse import quote
 
 from app.cli.client import APIClient, segment
 from app.cli.errors import CLIError
@@ -42,6 +44,9 @@ def build_parser():
     add.add_argument("--model")
     add.add_argument("--base-url", default="https://api.openai.com/v1")
     add.add_argument("--api-key-env", help="包含 API Key 的环境变量名称")
+    add.add_argument("--files", action="store_true", help="Files + Responses 原生 PDF 适配器，需实际能力检测")
+    add.add_argument("--demo-files", action="store_true", help="固定资料样例，未读取上传内容")
+    add.add_argument("--embedding-model", help="可选：同一服务商远端 Embedding 模型 ID")
     add.add_argument("--demo", action="store_true", help="固定操作系统离线演示，须服务端允许")
     add.add_argument(
         "--accept-data-transfer",
@@ -54,6 +59,8 @@ def build_parser():
         if action == "update":
             command.add_argument("--name")
             command.add_argument("--model")
+            command.add_argument("--embedding-model")
+            command.add_argument("--clear-embedding-model", action="store_true")
             command.add_argument("--base-url")
             command.add_argument("--rotate-key", action="store_true")
             command.add_argument("--api-key-env")
@@ -73,6 +80,44 @@ def build_parser():
         command.add_argument("id")
         if action == "switch-provider":
             command.add_argument("--provider", required=True)
+
+    policy = spaces.add_parser("knowledge-policy", help="教材不足时是否允许通用知识补充")
+    policy.add_argument("id")
+    policy.add_argument("--allow-general-knowledge", action=argparse.BooleanOptionalAction, required=True)
+
+    materials = groups.add_parser("material", help="私人 PDF 教材").add_subparsers(
+        dest="action", required=True
+    )
+    for action in ("list", "upload", "show", "search", "reindex", "remove", "download"):
+        command = materials.add_parser(action)
+        command.add_argument("--space")
+        if action == "upload":
+            command.add_argument("file", type=Path)
+        elif action == "search":
+            command.add_argument("query")
+            command.add_argument("--mode", choices=["auto", "keyword", "embedding"], default="auto")
+        elif action != "list":
+            command.add_argument("id")
+        if action in {"upload", "reindex"}:
+            command.add_argument(
+                "--accept-file-transfer",
+                action="store_true",
+                help="授权本次远端文件理解，知悉第三方保留政策和费用",
+            )
+            command.add_argument(
+                "--embeddings", action="store_true", help="授权将远端摘要发送到已检测的远端 Embedding API"
+            )
+            command.add_argument("--request-id")
+        if action == "download":
+            command.add_argument("--output", type=Path, required=True)
+    jobs = groups.add_parser("job", help="资料处理任务").add_subparsers(dest="action", required=True)
+    for action in ("show", "run", "wait", "cancel", "retry"):
+        command = jobs.add_parser(action)
+        command.add_argument("id")
+        if action == "retry":
+            command.add_argument("--request-id")
+        if action == "wait":
+            command.add_argument("--seconds", type=int, default=180)
 
     for name, help_text in (
         ("progress", "知识掌握状态与证据"),
@@ -161,17 +206,21 @@ def execute(args, client, prompt, secret_prompt, interactive, emit):
         if args.action == "list":
             return client.request("GET", path)
         if args.action == "add":
-            if not args.demo:
+            demo = args.demo or args.demo_files
+            if not demo:
                 require_consent(args)
                 if not args.model:
                     raise CLIError("missing_model", "请使用 --model 指定聊天模型名称。", 2)
             body = {
                 "name": args.name,
-                "provider_type": "fake" if args.demo else "openai_compatible",
-                "chat_model": "demo-model" if args.demo else args.model,
+                "provider_type": ("fake_files" if args.demo_files else "fake")
+                if demo
+                else ("openai_files" if args.files else "openai_compatible"),
+                "embedding_model": args.embedding_model,
+                "chat_model": "demo-model" if demo else args.model,
                 "base_url": args.base_url,
                 "api_key": "demo"
-                if args.demo
+                if demo
                 else read_secret(args.api_key_env, "STUDY_AGENT_API_KEY", "API Key", secret_prompt),
             }
             return client.request("POST", path, body)
@@ -188,6 +237,8 @@ def execute(args, client, prompt, secret_prompt, interactive, emit):
             for name, value in [("name", args.name), ("chat_model", args.model), ("base_url", args.base_url)]
             if value is not None
         }
+        if args.clear_embedding_model or args.embedding_model is not None:
+            body["embedding_model"] = None if args.clear_embedding_model else args.embedding_model
         if args.base_url:
             require_consent(args)
         if args.rotate_key or args.api_key_env:
@@ -219,9 +270,80 @@ def execute(args, client, prompt, secret_prompt, interactive, emit):
         if args.action == "use":
             return client.select_space(args.id)
         path = "/study-spaces/" + segment(args.id)
+        if args.action == "knowledge-policy":
+            return client.request("PATCH", path, {"allow_general_knowledge": args.allow_general_knowledge})
         if args.action == "switch-provider":
             return client.request("PATCH", path, {"provider_id": args.provider})
         return client.request("GET", path)
+
+    if args.command == "job":
+        path = "/jobs/" + segment(args.id)
+        if args.action == "wait":
+            if not 1 <= args.seconds <= 3600:
+                raise CLIError("invalid_wait", "--seconds 须为 1–3600。", 2)
+            deadline = time.monotonic() + args.seconds
+            while True:
+                data = client.request("GET", path)
+                if data["status"] not in {"queued", "running"}:
+                    return data
+                if time.monotonic() >= deadline:
+                    raise CLIError("job_pending", "任务仍在处理，可稍后再次 job show/wait。")
+                time.sleep(1)
+        if args.action == "show":
+            return client.request("GET", path)
+        return client.request(
+            "POST",
+            path + "/" + args.action,
+            {"idempotency_key": new_request_key(args)} if args.action == "retry" else None,
+        )
+    if args.command == "material":
+        root = client.active_space(args.space) + "/materials"
+        if args.action in {"upload", "reindex"} and not args.accept_file_transfer:
+            raise CLIError(
+                "consent_required",
+                "本次文件与摘要将发送至所选服务商，可能产生费用并被远端保留；请添加 --accept-file-transfer。",
+                2,
+            )
+        if args.action == "list":
+            return client.request("GET", root)
+        if args.action == "search":
+            return client.request("POST", root + "/search", {"query": args.query, "mode": args.mode})
+        if args.action == "upload":
+            if args.file.stat().st_size > 48 * 1024 * 1024:
+                raise CLIError("file_too_large", "上传文件不能超过 48 MiB；实例可设置更小上限。", 2)
+            return client.request(
+                "POST",
+                root,
+                content=args.file.read_bytes(),
+                headers={
+                    "Content-Type": "application/pdf",
+                    "X-Filename": quote(args.file.name, safe=""),
+                    "X-File-Consent": "true",
+                    "X-Use-Embeddings": str(args.embeddings).lower(),
+                    "Idempotency-Key": new_request_key(args),
+                },
+            )
+        path = root + "/" + segment(args.id)
+        if args.action == "reindex":
+            return client.request(
+                "POST",
+                path + "/reindex",
+                {
+                    "idempotency_key": new_request_key(args),
+                    "consent": True,
+                    "use_embeddings": args.embeddings,
+                },
+            )
+        if args.action == "download":
+            # Never overwrite an existing local file; downloaded originals remain private.
+            if args.output.exists():
+                raise CLIError("output_exists", "下载路径已存在，请选择新的 --output。", 2)
+            data = client.request("GET", path + "/download", binary=True)
+            fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as target:
+                target.write(data)
+            return {"message": "原始文件已下载至 " + str(args.output)}
+        return client.request("DELETE" if args.action == "remove" else "GET", path)
 
     root = client.active_space(args.space)
     if args.command == "progress":

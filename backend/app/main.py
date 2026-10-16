@@ -2,7 +2,7 @@ import asyncio
 import logging
 import secrets
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -12,11 +12,12 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from app.api import auth, learning, providers, spaces
+from app.api import auth, learning, materials, providers, spaces
 from app.api.deps import RateLimiter
 from app.core.security import CredentialVault, password_hash
 from app.core.settings import Settings
 from app.db.session import build_database
+from app.jobs.materials import worker
 from app.providers.base import ProviderError
 
 logger = logging.getLogger("uvicorn.error.study_agent")
@@ -28,14 +29,21 @@ def create_app(settings=None, adapter_factory=None):
 
     @asynccontextmanager
     async def lifespan(app):
-        yield
-        engine.dispose()
+        task = asyncio.create_task(worker(app)) if settings.material_worker_enabled else None
+        try:
+            yield
+        finally:
+            if task:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+            engine.dispose()
 
     app = FastAPI(
         title="StudyAgent Framework",
         version="0.1.0",
         lifespan=lifespan,
-        description="M1 BYOK 学习闭环；课程和标准答案均为模型生成、待核实。",
+        description="M2 BYOK 学习闭环与私人教材；远端理解内容仍需核实。",
     )
     app.state.settings = settings
     app.state.engine, app.state.session_factory = engine, sessions
@@ -104,13 +112,17 @@ def create_app(settings=None, adapter_factory=None):
     async def health():
         with sessions() as db:
             db.execute(text("SELECT 1"))
-        return {"status": "ok", "phase": "M1"}
+        return {"status": "ok", "phase": "M2"}
 
     @app.get("/api/v1/config", tags=["system"])
     async def public_config():
-        return {"demo_enabled": settings.enable_fake_provider, "phase": "M1"}
+        return {
+            "demo_enabled": settings.enable_fake_provider,
+            "phase": "M2",
+            "material_max_bytes": settings.material_max_bytes,
+        }
 
-    for router in (auth.router, providers.router, spaces.router, learning.router):
+    for router in (auth.router, providers.router, spaces.router, learning.router, materials.router):
         app.include_router(router, prefix="/api/v1")
     dist = Path(settings.frontend_dist)
     if (dist / "assets").exists():

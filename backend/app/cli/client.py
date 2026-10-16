@@ -91,9 +91,14 @@ class APIClient:
         self.state.update(cookies=[], active_space=None, user_id=None)
         self.store.save()
 
-    def request(self, method, path, body=None):
+    def request(self, method, path, body=None, *, content=None, headers=None, binary=False):
         try:
-            response = self.http.request(method, self.server + "/api/v1" + path, json=body)
+            response = self.http.request(
+                method,
+                self.server + "/api/v1" + path,
+                **({"content": content} if content is not None else {"json": body}),
+                headers=headers,
+            )
         except httpx.TimeoutException:
             raise CLIError(
                 "request_timeout", "请求超时；写操作可能已完成，可使用原 --request-id 重试或查询进度。"
@@ -106,6 +111,8 @@ class APIClient:
             self.clear_session()
         if response.status_code == 204:
             return None
+        if binary and response.is_success:
+            return response.content
         try:
             data = response.json()
         except ValueError:

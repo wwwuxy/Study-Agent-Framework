@@ -126,3 +126,22 @@ python -m app.cli --help
 默认本地目录为 `$XDG_CONFIG_HOME/study-agent` 或 `~/.config/study-agent`。目录权限 0700，状态文件 `state.json` 权限 0600，采用临时文件 + 原子替换保存。它只含会话 Cookie、账号 ID 与当前空间，不含密码、模型 API Key、答案和教材。Cookie 相当于登录凭证，请勿共享此文件。建议一个配置目录同时只供一个 CLI 会话管理账号，多个账号使用不同目录。
 
 本地 HTTP 开发后端需 `COOKIE_SECURE=false`；HTTPS 部署保持 `true`。`connection_failed` 时先检查后端是否运行，`no_active_space` 时先选择空间，`provider_not_tested` 时重新检测模型。本地状态损坏会明确报错并保留原文件，不会静默覆盖。
+
+
+## 阶段二资料命令
+
+CLI 已加入 `provider add --files [--embedding-model ID]`、`--demo-files`、`material`、`job` 和 `space knowledge-policy`。资料命令均支持 `--space ID`，否则使用当前空间；任务命令通过全局 job ID 查询，服务端仍校验归属。
+
+```bash
+study-agent material upload /path/book.pdf --accept-file-transfer --request-id upload-1
+study-agent job wait JOB_ID --seconds 180
+study-agent material search '操作系统' --mode keyword
+study-agent material show MATERIAL_ID
+study-agent material reindex MATERIAL_ID --accept-file-transfer --embeddings
+study-agent job retry FAILED_JOB_ID --request-id retry-1
+study-agent job cancel JOB_ID
+study-agent material download MATERIAL_ID --output /new/path/book.pdf
+study-agent material remove MATERIAL_ID
+```
+
+`job show/run/wait/cancel/retry` 返回状态对象。wait 查询到 failed/cancelled 也会返回 JSON 状态，不把“查询成功”冒充“任务成功”；脚本须检查 `status == "succeeded"`。`--json`、`--server` 等全局选项必须放在主命令前。下载不覆盖已有文件；仅上传／重索引需要逐次 `--accept-file-transfer`，可选 `--embeddings` 表示额外授权远端向量生成。完整端点要求、恢复与清理说明见 [M2 使用文档](m2-materials.md)。

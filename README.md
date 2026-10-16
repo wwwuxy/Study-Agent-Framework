@@ -2,7 +2,7 @@
 
 StudyAgent 是一个用户自带大语言模型 API 的个人学习 Agent 框架。你可以在终端或网页中填写学习目标，由框架组织知识结构、安排初始诊断、生成讲解与练习，并根据实际作答证据持续更新学习状态、推荐下一步任务。
 
-当前已实现开发规格中的**阶段一：最小学习闭环（M1）**，并提供完整的**命令行客户端（CLI）**。
+当前已实现**阶段一学习闭环（M1）**与**阶段二私人教材（M2）代码**，CLI 和 Web 均可使用。阶段二已用演示适配器和协议替身验证；真实 BYOK 教材与 pgvector 部署验收仍待执行，详见[阶段二使用说明](docs/m2-materials.md)。
 
 ```text
 配置自己的模型 → 创建学习目标 → 生成候选课程 → 初始诊断
@@ -14,6 +14,7 @@ StudyAgent 是一个用户自带大语言模型 API 的个人学习 Agent 框架
 ## 目录
 
 - [一、当前功能与实现范围](#一当前功能与实现范围)
+- [阶段二：上传教材、检索与引用](#阶段二上传教材检索与引用)
 - [二、运行环境](#二运行环境)
 - [三、CLI 快速开始](#三cli-快速开始)
 - [四、不使用付费 API 的离线演示](#四不使用付费-api-的离线演示)
@@ -36,7 +37,7 @@ StudyAgent 是一个用户自带大语言模型 API 的个人学习 Agent 框架
 | 功能 | 说明 |
 |---|---|
 | 命令行学习 | 在终端完成注册登录、模型配置、目标创建、诊断、课堂与进度查询 |
-| Web 学习工作台 | 中文响应式界面，包含学习概览、专属课堂、知识地图、学习记录和模型设置 |
+| Web 学习工作台 | 中文响应式界面，包含学习概览、专属课堂、知识地图、私人教材、学习记录和模型设置 |
 | 用户自带模型（BYOK） | 使用用户配置的 Base URL、API Key 和模型名称调用远端服务 |
 | 模型连接检测 | 实际验证聊天调用与结构化 JSON 输出，记录能力和调用结果 |
 | 候选课程生成 | 根据目标生成知识点、学习目标和前置关系，服务端验证唯一性与无环依赖 |
@@ -46,6 +47,9 @@ StudyAgent 是一个用户自带大语言模型 API 的个人学习 Agent 框架
 | 下一步推荐 | 根据前置知识、证据、目标权重和时间预算选择任务，并展示理由 |
 | 持久化与幂等 | 学习记录进入数据库；相同提交重试不会重复计分 |
 | 多用户隔离 | 服务端校验模型配置、学习空间、题目和学习记录的归属 |
+| 私人教材 | 原生 PDF 能力检测、逐次授权上传、远端目录／章节理解、进度与失败恢复 |
+| 教材检索与引用 | 关键词 + 用户模型精排；可选远端 Embedding；真实文件与章节引用 |
+| 资料生命周期 | 下载、重索引、取消、删除与远端清理任务；按用户与空间隔离 |
 | 离线演示 | 使用明确标注的 Fake Adapter，无需付费 Key 即可体验固定样例 |
 
 ### 当前边界
@@ -53,9 +57,67 @@ StudyAgent 是一个用户自带大语言模型 API 的个人学习 Agent 框架
 - 通用模型适配器对接 **OpenAI-compatible `/chat/completions` 接口**。
 - CLI 是 StudyAgent 的 HTTP 客户端，使用时需要一个正在运行的 StudyAgent 后端。
 - CLI 不是 Codex CLI 或 Claude Code 的模型适配器；本项目目前没有将这些命令行工具作为模型后端接入。
-- 教材上传、远端文件理解、向量检索、BKT、间隔复习和主动提醒尚未实现。
+- 新增 `openai_files` 原生 Files + Responses 适配器，仅开放实际探测成功的 PDF；DOCX、EPUB 暂不支持。
+- 远端 Embedding 为可选项，默认可用关键词检索；pgvector 需要管理员另行安装初始化。BKT、间隔复习与主动提醒属于后续阶段。
 - 不引入或运行本地 Embedding、PDF／EPUB／DOCX 正文解析和 OCR。
 - 课程、题目及其参考答案由模型生成，均不代表已核实的权威内容或最新考试大纲。
+
+## 阶段二：上传教材、检索与引用
+
+已有项目先升级数据库并重启后端：
+
+```bash
+.venv/bin/alembic -c backend/alembic.ini upgrade head
+./scripts/serve.sh
+```
+
+另开终端，激活虚拟环境并登录。新建一个支持原生文件输入的模型配置：
+
+```bash
+source .venv/bin/activate
+study-agent auth login --username 你的账号
+study-agent provider add --name '我的文件模型' --files \
+  --model '服务商的文件模型ID' --base-url 'https://你的服务商/v1' \
+  --accept-data-transfer
+study-agent provider test PROVIDER_ID
+study-agent space switch-provider SPACE_ID --provider PROVIDER_ID
+study-agent space use SPACE_ID
+```
+
+检测会上传框架生成的随机标识 PDF，实际读回后才开放 PDF；只支持聊天的连接会明确禁用上传。文件探测可能产生费用，检测文件会尝试远端删除。需要服务商同时实现聊天、Files、Responses 和文件删除协议，具体模型必须自行检测。
+
+```bash
+study-agent material upload '/绝对路径/教材.pdf' \
+  --accept-file-transfer --request-id textbook-001
+study-agent job wait JOB_ID --seconds 180
+study-agent material list
+study-agent material show MATERIAL_ID
+study-agent material search '进程调度' --mode keyword
+study-agent diagnose
+study-agent learn
+```
+
+上传成功后会立即自动写入数据库中的文件记录和处理任务；后台完成理解后，自动更新章节、知识点、来源、可选向量与学习计划，页面同步刷新资料详情和知识地图，无需手动执行 SQL 或 `job run`。新增知识点保持待诊断，已有答题证据不变。
+
+上传响应包含 `id` 和 `job_id`。默认后台按“上传 → 目录 → 各章节摘要／关键词／概念 → 可选向量 → 发布”处理，保存检查点，失败时可重试。每次上传／重新索引都须明确授权将文件发送到所选服务商，并知悉费用和第三方保留政策。默认 20 MiB、最多 20 节；原文留在本机私有目录，不执行本地正文解析。
+
+```bash
+study-agent job show JOB_ID
+study-agent job retry FAILED_JOB_ID --request-id retry-001
+study-agent job cancel JOB_ID
+study-agent material reindex MATERIAL_ID --accept-file-transfer --request-id reindex-001
+study-agent material download MATERIAL_ID --output '/新的路径/教材.pdf'
+study-agent material remove MATERIAL_ID
+# 删除返回清理任务 ID；继续 job show/wait 确认远端清理结果
+```
+
+上传资料后，新诊断与课堂优先检索教材，并显示真实文件、章节和可下载原文。当前页码无法核实，界面明确标记；模型不能编造引用。资料不足默认停止新教学，用户可通过 `space knowledge-policy SPACE_ID --allow-general-knowledge` 授权通用知识补充。索引、阅读与重索引均不会直接增加掌握度。
+
+可选向量方式需要配置并检测远端 Embedding 模型，且本次上传增加 `--embeddings`。未配置时继续使用关键词 + 用户模型精排，不运行本地向量模型。Web 的“私人教材”页面提供相同功能，以及进度、失败提示与引用查看。
+
+无需付费 Key 的资料演示可使用 `provider add --name '资料演示' --demo-files`；这是独立演示适配器，**使用固定操作系统资料，未读取上传内容**，不能代表真实文件理解成功。
+
+完整的模型配置、命令示例、检索策略、远端清理、pgvector 与部署说明见[阶段二私人教材文档](docs/m2-materials.md)。
 
 ## 二、运行环境
 
@@ -617,7 +679,7 @@ study-agent --server http://127.0.0.1:8001 auth login --username yourname
 - 自定义模型地址默认进行 SSRF 检查，拒绝非公网地址；自托管内网模型需要管理员明确放开。
 - 模型输出经过结构化和业务规则校验，不能直接覆盖知识掌握度或执行服务器命令。
 - 日志和调用记录不保存密码、API Key 或敏感答案正文；作答本身由后端受权限控制的数据表保存。
-- 所有模型任务由用户操作触发，当前没有无人值守的主动付费任务。
+- 教学任务由用户操作触发；教材处理和远端清理会在本次上传／删除授权后于后台继续，有进度、取消和有界恢复。当前不实现主动学习提醒。
 - 单次模型任务总时限为 90 秒，并有有界重试。令牌用量与可得费用信息会记录；服务商未提供可靠金额时明确显示“未提供”，当前不承诺货币预算硬限额。
 
 备份学习数据时，应同时妥善保管数据库和对应加密主密钥。直接换掉主密钥会导致已有密文无法解密；丢失后需要重新配置模型 API Key。
@@ -638,7 +700,7 @@ COOKIE_SECURE=false FRONTEND_ORIGIN=http://localhost:8000 docker compose up --bu
 
 访问 [http://localhost:8000](http://localhost:8000)。CLI 可以连接相同后端地址。
 
-Compose 配置中的应用端口只绑定到本机 `127.0.0.1:8000`，数据库不映射主机端口；数据库数据保存在命名卷 `postgres_data` 中。容器中的 `DATABASE_URL` 会使用 PostgreSQL，不沿用本地 SQLite。
+Compose 配置中的应用端口只绑定到本机 `127.0.0.1:8000`，数据库不映射主机端口；数据库数据保存在命名卷 `postgres_data` 中，教材原文保存在 `material_data` 卷中。容器中的 `DATABASE_URL` 会使用 PostgreSQL，不沿用本地 SQLite。
 
 停止服务：
 
@@ -686,7 +748,7 @@ npm --prefix frontend test
 npm --prefix frontend run build
 ```
 
-截至 2026-10-16 的验收记录：Python 测试 **63 项通过**，其中 CLI **24 项**；前端回归 **3 项通过**，生产构建通过。已使用临时真实 HTTP 服务和独立 CLI 进程验证完整学习流程。具体范围、历史 PostgreSQL 验证与未验证事项见 [验收记录](docs/acceptance.md)。
+M1＋CLI 基线为 63 项 Python 与 3 项前端测试。M2 新增资料、原生接口和 CLI 资料回归，并重新运行 SQLite、PostgreSQL、前端与真实 HTTP 联调。最终结果与未验证的真实 BYOK／pgvector 范围见[验收记录](docs/acceptance.md)。
 
 ### PostgreSQL 集成测试
 
@@ -756,7 +818,7 @@ Study-Agent-Framework/
 
 模型调用经过 Provider Adapter，状态更新由服务端规则控制。框架采用一个主学习流程和确定性服务模块，不依靠多个模型互相对话推进学习。
 
-API 在线文档由 FastAPI 自动生成；保存的接口快照位于 [docs/openapi.json](docs/openapi.json)。当前没有教材上传、复习调度和通知接口。
+API 在线文档由 FastAPI 自动生成；保存的接口快照位于 [docs/openapi.json](docs/openapi.json)。已包含教材与持久任务接口；复习调度和通知仍未实现。
 
 ## 十四、常见问题
 
@@ -831,14 +893,14 @@ study-agent space use SPACE_ID
 
 ### 能否上传教材或直接核实最新考纲
 
-当前阶段不支持教材上传，也没有实现可信联网核验。现有模型生成内容都应视为待核实，不会自动标记成某年官方考试大纲。
+阶段二已支持经过实际检测的 PDF 远端理解、检索和引用；详见[教材使用说明](docs/m2-materials.md)。尚未实现可信联网核验，模型提取摘要与生成内容均需核实，不会自动标记成某年官方考试大纲。
 
 ## 十五、后续开发计划与文档
 
 | 阶段 | 状态 | 计划内容 |
 |---|---|---|
 | M1：学习闭环 | 已实现，含 CLI | BYOK、目标、课程、诊断、教学、测评、持久化状态与推荐 |
-| M2：私人教材 | 尚未实现 | 按服务商真实能力接入远端文件理解、出处与检索 |
+| M2：私人教材 | 已实现代码，真实 BYOK／pgvector 验收待执行 | PDF 远端理解、持久任务、教材检索、出处、删除与 CLI／Web |
 | M3：自适应提升 | 尚未实现 | BKT、间隔复习、学习报告与版本化质量评估 |
 | M4：主动陪伴 | 尚未实现 | 明确授权后的后台调度、提醒和成本控制 |
 

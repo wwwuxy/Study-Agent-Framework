@@ -32,30 +32,28 @@ class CompatibleAdapter(TextOnlyAdapter):
             "currency": "USD",
         }
 
-    async def _request(self, messages):
+    async def _http(self, method, path, *, missing_ok=False, **kwargs):
         host, address = await validate_base_url(self.base_url, self.allow_private, self.resolver)
         parsed = urlsplit(self.base_url)
         authority = f"[{address}]" if ":" in address else address
         if parsed.port:
             authority += f":{parsed.port}"
-        url = urlunsplit((parsed.scheme, authority, parsed.path + "/chat/completions", "", ""))
+        url = urlunsplit((parsed.scheme, authority, parsed.path + path, "", ""))
         host_header = host + (f":{parsed.port}" if parsed.port else "")
         for attempt in range(self.retries + 1):
             try:
                 async with httpx.AsyncClient(
                     timeout=self.timeout, transport=self.transport, trust_env=False, follow_redirects=False
                 ) as client:
-                    response = await client.post(
+                    response = await client.request(
+                        method,
                         url,
                         headers={"Authorization": f"Bearer {self.api_key}", "Host": host_header},
                         extensions={"sni_hostname": host},
-                        json={
-                            "model": self.model,
-                            "messages": messages,
-                            "temperature": 0.2,
-                            "max_tokens": 6000,
-                        },
+                        **kwargs,
                     )
+                if response.status_code == 404 and missing_ok:
+                    return {"deleted": True}
                 if response.status_code in (401, 403):
                     raise ProviderError("invalid_api_key", "模型凭证无效或无访问权限", 422)
                 if response.status_code == 429:
@@ -67,14 +65,13 @@ class CompatibleAdapter(TextOnlyAdapter):
                         "provider_rejected", "模型接口拒绝请求，请检查地址、模型名称和接口兼容性"
                     )
                 data = response.json()
-                text = data["choices"][0]["message"]["content"]
-                if not isinstance(text, str) or not text.strip():
-                    raise ValueError("missing text")
+                if not isinstance(data, dict):
+                    raise ValueError("response must be an object")
                 for key in ("prompt_tokens", "completion_tokens"):
                     value = data.get("usage", {}).get(key)
                     if isinstance(value, int) and value >= 0:
                         self.usage[key] += value
-                return text
+                return data
             except httpx.TimeoutException:
                 error = ProviderError("provider_timeout", "模型请求超时，可以重新发起")
             except httpx.RequestError:
@@ -88,6 +85,25 @@ class CompatibleAdapter(TextOnlyAdapter):
             if attempt == self.retries:
                 raise error
             await asyncio.sleep(0.1 * (2**attempt))
+
+    async def _request(self, messages):
+        data = await self._http(
+            "POST",
+            "/chat/completions",
+            json={
+                "model": self.model,
+                "messages": messages,
+                "temperature": 0.2,
+                "max_tokens": 6000,
+            },
+        )
+        try:
+            text = data["choices"][0]["message"]["content"]
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError()
+            return text
+        except (ValueError, KeyError, IndexError, TypeError):
+            raise ProviderError("invalid_provider_response", "模型接口返回了无效响应") from None
 
     async def generate_text(self, messages):
         return await self._request(messages)

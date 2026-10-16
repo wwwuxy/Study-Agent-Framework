@@ -281,3 +281,36 @@ def test_learn_new_restores_read_lesson_with_unanswered_practice(cli):
     assert code == 0
     assert restored["id"] == first["id"]
     assert restored["exercises"][0]["id"] == first["exercises"][0]["id"]
+
+
+def test_cli_material_workflow_requires_consent_and_preserves_download(cli, tmp_path):
+    from app.providers.probe_pdf import make_probe_pdf
+
+    cli("auth", "register", "--username", "fileuser", "--password-env", "CLI_TEST_PASSWORD")
+    code, config, _ = cli("provider", "add", "--demo-files", "--name", "资料演示")
+    assert code == 0
+    assert cli("provider", "test", config["id"])[0] == 0
+    assert cli("space", "create", "--goal", "学习操作系统", "--provider", config["id"])[0] == 0
+    path = tmp_path / "教材.pdf"
+    path.write_bytes(make_probe_pdf("USER_MATERIAL"))
+    assert cli("material", "upload", str(path))[1]["error"]["code"] == "consent_required"
+    code, asset, _ = cli(
+        "material", "upload", str(path), "--accept-file-transfer", "--request-id", "cli-file"
+    )
+    assert code == 0
+    assert cli("job", "run", asset["job_id"])[1]["status"] == "succeeded"
+    assert cli("material", "list")[1][0]["status"] == "ready"
+    assert cli("material", "search", "操作系统")[1]["results"]
+    assert cli("material", "show", asset["id"])[1]["sections"]
+    output = tmp_path / "下载.pdf"
+    assert cli("material", "download", asset["id"], "--output", str(output))[0] == 0
+    assert output.read_bytes() == path.read_bytes()
+    assert cli("material", "download", asset["id"], "--output", str(output))[0] != 0
+    assert (
+        cli("space", "knowledge-policy", asset["space_id"], "--allow-general-knowledge")[1][
+            "allow_general_knowledge"
+        ]
+        is True
+    )
+    code, deleted, _ = cli("material", "remove", asset["id"])
+    assert code == 0 and cli("job", "run", deleted["job_id"])[1]["status"] == "succeeded"

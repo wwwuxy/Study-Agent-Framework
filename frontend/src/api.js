@@ -3,7 +3,12 @@ export async function api(path, options = {}) {
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     ...options,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body:
+      options.rawBody !== undefined
+        ? options.rawBody
+        : options.body === undefined
+          ? undefined
+          : JSON.stringify(options.body),
   });
   if (response.status === 204) return null;
   const data = await response.json();

@@ -4,7 +4,7 @@ from sqlalchemy import select
 from app.api.deps import current_user, get_db, own_provider
 from app.core.orchestrator import call_model
 from app.core.security import validate_base_url
-from app.db.models import AgentRun, ProviderConfig, StudySpace
+from app.db.models import AgentRun, MaterialAsset, ProviderConfig, StudySpace
 from app.providers.base import ProviderError
 from app.schemas.api import ProviderCreate, ProviderUpdate
 
@@ -18,6 +18,7 @@ def public_provider(config):
         "provider_type": config.provider_type,
         "base_url": config.base_url,
         "chat_model": config.chat_model,
+        "embedding_model": config.embedding_model,
         "has_api_key": bool(config.encrypted_api_key),
         "timeout_seconds": config.timeout_seconds,
         "tested": config.tested,
@@ -41,7 +42,7 @@ async def list_providers(db=Depends(get_db), user=Depends(current_user)):
 async def create_provider(
     body: ProviderCreate, request: Request, db=Depends(get_db), user=Depends(current_user)
 ):
-    if body.provider_type == "fake":
+    if body.provider_type in {"fake", "fake_files"}:
         if not request.app.state.settings.enable_fake_provider:
             raise ProviderError("demo_disabled", "管理员未启用离线演示", 422)
     else:
@@ -52,6 +53,7 @@ async def create_provider(
         provider_type=body.provider_type,
         base_url=body.base_url,
         chat_model=body.chat_model,
+        embedding_model=body.embedding_model,
         timeout_seconds=body.timeout_seconds,
         encrypted_api_key=request.app.state.vault.encrypt(body.api_key.get_secret_value()),
     )
@@ -65,13 +67,16 @@ async def update_provider(
     provider_id: str, body: ProviderUpdate, request: Request, db=Depends(get_db), user=Depends(current_user)
 ):
     config = own_provider(db, user.id, provider_id)
-    if body.base_url and config.provider_type != "fake":
+    if body.base_url and config.provider_type not in {"fake", "fake_files"}:
         await validate_base_url(body.base_url, request.app.state.settings.allow_private_provider_urls)
     changed = False
-    for field in ("name", "base_url", "chat_model", "timeout_seconds"):
+    for field in ("name", "base_url", "chat_model", "timeout_seconds", "embedding_model"):
         if getattr(body, field) is not None:
             setattr(config, field, getattr(body, field))
             changed |= field != "name"
+    if "embedding_model" in body.model_fields_set:
+        config.embedding_model = body.embedding_model
+        changed = True
     if body.api_key:
         config.encrypted_api_key = request.app.state.vault.encrypt(body.api_key.get_secret_value())
         changed = True
@@ -85,6 +90,17 @@ async def remove_provider(provider_id: str, db=Depends(get_db), user=Depends(cur
     config = own_provider(db, user.id, provider_id)
     if db.scalar(select(StudySpace.id).where(StudySpace.provider_id == config.id)):
         raise ProviderError("provider_in_use", "请先将关联学习空间切换到其他已检测的模型，再删除凭证", 409)
+    if db.scalar(
+        select(MaterialAsset.id).where(
+            MaterialAsset.provider_id == config.id, MaterialAsset.status != "deleted"
+        )
+    ):
+        raise ProviderError("provider_in_use", "请先删除并清理关联资料，再删除凭证", 409)
+    for asset in db.scalars(select(MaterialAsset).where(MaterialAsset.user_id == user.id)).all():
+        if any(handle.get("provider_id") == config.id for handle in asset.remote_files):
+            raise ProviderError(
+                "provider_in_use", "该凭证仍用于旧版本资料的远端文件清理，请先删除资料并完成清理", 409
+            )
     db.delete(config)
     return Response(status_code=204)
 
@@ -92,7 +108,14 @@ async def remove_provider(provider_id: str, db=Depends(get_db), user=Depends(cur
 @router.post("/{provider_id}/test")
 async def test_provider(provider_id: str, request: Request, db=Depends(get_db), user=Depends(current_user)):
     config = own_provider(db, user.id, provider_id)
-    fields = ("provider_type", "base_url", "chat_model", "encrypted_api_key", "timeout_seconds")
+    fields = (
+        "provider_type",
+        "base_url",
+        "chat_model",
+        "encrypted_api_key",
+        "timeout_seconds",
+        "embedding_model",
+    )
     snapshot = tuple(getattr(config, field) for field in fields)
     # Invalidate stale success first; failed retests must disable subsequent paid tasks.
     config.tested, config.capabilities = False, {}

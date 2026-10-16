@@ -30,6 +30,7 @@ class Curriculum(StrictModel):
 
 
 class Question(StrictModel):
+    source_ids: list[str] = Field(default_factory=list, max_length=10)
     prompt: str = Field(min_length=1, max_length=5000)
     concept_keys: list[str] = Field(min_length=1, max_length=5)
     kind: Literal["choice", "short_answer"] = "choice"
@@ -52,6 +53,7 @@ class QuestionBatch(StrictModel):
 
 
 class LessonContent(StrictModel):
+    source_ids: list[str] = Field(default_factory=list, max_length=10)
     title: str = Field(min_length=1, max_length=200)
     explanation: str = Field(min_length=1, max_length=15000)
     example: str = Field(min_length=1, max_length=8000)

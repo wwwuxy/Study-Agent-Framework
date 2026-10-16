@@ -34,6 +34,8 @@ def settings(tmp_path):
         credential_encryption_key=Fernet.generate_key().decode(),
         enable_fake_provider=True,
         cookie_secure=False,
+        material_storage_dir=str(tmp_path / "materials"),
+        material_worker_enabled=False,
     )
     if admin:
         with admin.begin() as db:
