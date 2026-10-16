@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="420" viewBox="0 0 1280 420" role="img" aria-labelledby="title desc">
+<title id="title">StudyAgent Framework</title><desc id="desc">BYOK learning through goals, evidence and saved next steps. Illustrative project banner.</desc>
+<defs></defs><g font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', Arial, sans-serif">
+<rect width="1280" height="420" rx="24" fill="#203e30"/>
+<path d="M800 0V420M960 0V420M1120 0V420M640 105H1280M640 210H1280M640 315H1280" stroke="#e7eddf" stroke-opacity=".06"/>
+<circle cx="1190" cy="38" r="220" fill="#b8cba0" fill-opacity=".06"/>
+<rect x="64" y="56" width="56" height="56" rx="15" fill="#dce7ce"/>
+<path d="M77 77L92 70L107 77L92 84Z M77 84L92 91L107 84 M77 91L92 98L107 91" fill="none" stroke="#254a37" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="137" y="79" font-size="15" font-weight="600" letter-spacing="3" fill="#dce7ce">PERSONAL LEARNING AGENT</text>
+<text x="137" y="104" font-size="15" fill="#a9bda6">BYOK · CLI + WEB · PERSISTENT PROGRESS</text>
+<text x="64" y="207" font-size="76" font-weight="650" letter-spacing="-3" fill="#ffffff">StudyAgent</text>
+<text x="66" y="254" font-size="26" fill="#dce7ce">Your model. Your materials. Your progress.</text>
+<path d="M66 292H614" stroke="#b8cba0" stroke-opacity=".3"/>
+<text x="66" y="329" font-size="17" fill="#bed0b7">Set a goal. Learn with evidence. Keep moving.</text>
+<rect x="66" y="351" width="126" height="28" rx="14" fill="#dce7ce"/>
+<text x="129" y="370" text-anchor="middle" font-size="12" font-weight="650" letter-spacing="1.1" fill="#203e30">M1 + M2 CODE</text>
+<path d="M959 120V170M959 236V286" stroke="#b5c7aa" stroke-width="2"/>
+<rect x="750" y="54" width="454" height="80" rx="14" fill="#f4f6ee"/>
+<circle cx="789" cy="94" r="20" fill="#e4eacf"/><text x="789" y="100" text-anchor="middle" font-size="16" font-weight="600" fill="#36523a">01</text>
+<text x="826" y="85" font-size="13" font-weight="700" letter-spacing="1.6" fill="#36523a">YOUR GOAL</text>
+<text x="826" y="110" font-size="17" fill="#4d5c4d">Choose what you want to learn</text><rect x="750" y="170" width="454" height="80" rx="14" fill="#f4f6ee"/>
+<circle cx="789" cy="210" r="20" fill="#e4eacf"/><text x="789" y="216" text-anchor="middle" font-size="16" font-weight="600" fill="#36523a">02</text>
+<text x="826" y="201" font-size="13" font-weight="700" letter-spacing="1.6" fill="#36523a">YOUR EVIDENCE</text>
+<text x="826" y="226" font-size="17" fill="#4d5c4d">Answer, practice and cite materials</text><rect x="750" y="286" width="454" height="80" rx="14" fill="#f4f6ee"/>
+<circle cx="789" cy="326" r="20" fill="#e4eacf"/><text x="789" y="332" text-anchor="middle" font-size="16" font-weight="600" fill="#36523a">03</text>
+<text x="826" y="317" font-size="13" font-weight="700" letter-spacing="1.6" fill="#36523a">YOUR NEXT STEP</text>
+<text x="826" y="342" font-size="17" fill="#4d5c4d">Continue from saved progress</text></g></svg>

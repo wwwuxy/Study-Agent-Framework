@@ -1,915 +1,304 @@
-# StudyAgent Framework
+<p align="center">
+  <img src="docs/assets/readme-hero.svg" alt="StudyAgent：你的模型、你的教材、你的学习进度" width="100%" />
+</p>
 
-StudyAgent 是一个用户自带大语言模型 API 的个人学习 Agent 框架。你可以在终端或网页中填写学习目标，由框架组织知识结构、安排初始诊断、生成讲解与练习，并根据实际作答证据持续更新学习状态、推荐下一步任务。
+<h1 align="center">StudyAgent Framework</h1>
 
-当前已实现**阶段一学习闭环（M1）**与**阶段二私人教材（M2）代码**，CLI 和 Web 均可使用。阶段二已用演示适配器和协议替身验证；真实 BYOK 教材与 pgvector 部署验收仍待执行，详见[阶段二使用说明](docs/m2-materials.md)。
+<p align="center">
+  用户自带模型 API 的个人学习 Agent。<br />
+  <strong>从一个学习目标出发，让每一步都有证据，让下一次学习接得上。</strong>
+</p>
 
-```text
-配置自己的模型 → 创建学习目标 → 生成候选课程 → 初始诊断
-        → 课堂讲解 → 作答与反馈 → 保存学习证据 → 推荐下一步
-```
+<p align="center">
+  <strong>简体中文</strong> · <a href="README.en.md">English</a>
+</p>
 
-学习进度保存在后端数据库中。关闭终端、刷新网页或重新登录后，可以继续之前的学习。CLI 与 Web 使用同一后端、同一账号和同一学习空间时，共享学习记录。
+<p align="center">
+  <img src="docs/assets/readme-stack.svg" alt="Python 3.12+ · FastAPI · React 19 · CLI + Web · BYOK · M1 + M2" width="780" />
+</p>
 
-## 目录
+<p align="center">
+  <a href="#preview">界面预览</a> ·
+  <a href="#quick-start">快速开始</a> ·
+  <a href="#cli">命令行使用</a> ·
+  <a href="#materials">上传教材</a> ·
+  <a href="docs/usage.zh-CN.md">完整中文手册</a>
+</p>
 
-- [一、当前功能与实现范围](#一当前功能与实现范围)
-- [阶段二：上传教材、检索与引用](#阶段二上传教材检索与引用)
-- [二、运行环境](#二运行环境)
-- [三、CLI 快速开始](#三cli-快速开始)
-- [四、不使用付费 API 的离线演示](#四不使用付费-api-的离线演示)
-- [五、日常学习与进度恢复](#五日常学习与进度恢复)
-- [六、CLI 命令参考](#六cli-命令参考)
-- [七、JSON 输出与脚本调用](#七json-输出与脚本调用)
-- [八、Web 界面使用](#八web-界面使用)
-- [九、配置项说明](#九配置项说明)
-- [十、数据存储、凭证与隐私](#十数据存储凭证与隐私)
-- [十一、PostgreSQL 与 Docker 部署](#十一postgresql-与-docker-部署)
-- [十二、测试、构建与数据库迁移](#十二测试构建与数据库迁移)
-- [十三、项目结构与技术实现](#十三项目结构与技术实现)
-- [十四、常见问题](#十四常见问题)
-- [十五、后续开发计划与文档](#十五后续开发计划与文档)
+---
 
-## 一、当前功能与实现范围
+## StudyAgent 能做什么？
 
-### 已实现
+你可以用自己的模型配置，创建学习目标、完成诊断、学习讲解、练习答题，再根据实际证据继续下一步。也可以上传私人 PDF，让教学优先检索教材，并显示文件与章节出处。
 
-| 功能 | 说明 |
-|---|---|
-| 命令行学习 | 在终端完成注册登录、模型配置、目标创建、诊断、课堂与进度查询 |
-| Web 学习工作台 | 中文响应式界面，包含学习概览、专属课堂、知识地图、私人教材、学习记录和模型设置 |
-| 用户自带模型（BYOK） | 使用用户配置的 Base URL、API Key 和模型名称调用远端服务 |
-| 模型连接检测 | 实际验证聊天调用与结构化 JSON 输出，记录能力和调用结果 |
-| 候选课程生成 | 根据目标生成知识点、学习目标和前置关系，服务端验证唯一性与无环依赖 |
-| 初始诊断 | 生成 5～10 道诊断题，以实际作答建立初始证据 |
-| 课堂与练习 | 获取讲解、示例、提示和练习，保存作答反馈 |
-| 知识状态 | 记录待诊断、学习中、已掌握及对应证据，支持从事件重建状态 |
-| 下一步推荐 | 根据前置知识、证据、目标权重和时间预算选择任务，并展示理由 |
-| 持久化与幂等 | 学习记录进入数据库；相同提交重试不会重复计分 |
-| 多用户隔离 | 服务端校验模型配置、学习空间、题目和学习记录的归属 |
-| 私人教材 | 原生 PDF 能力检测、逐次授权上传、远端目录／章节理解、进度与失败恢复 |
-| 教材检索与引用 | 关键词 + 用户模型精排；可选远端 Embedding；真实文件与章节引用 |
-| 资料生命周期 | 下载、重索引、取消、删除与远端清理任务；按用户与空间隔离 |
-| 离线演示 | 使用明确标注的 Fake Adapter，无需付费 Key 即可体验固定样例 |
+**CLI 与 Web 共用后端和学习记录。** 使用同一账号与空间时，关掉终端或刷新网页，进度仍然保留。
 
-### 当前边界
+| | 功能 | 你会得到什么 |
+|---|---|---|
+| 🧠 | **连接自己的模型** | 配置 Base URL、API Key 和模型；实际检测聊天、JSON 与可选文件能力 |
+| 🎯 | **围绕目标学习** | 生成候选知识结构，安排初始诊断、讲解、示例、提示与练习 |
+| 📚 | **私人教材与引用** | 远端理解 PDF，检索章节摘要，展示文件、章节与可下载的原文 |
+| 🔄 | **上传后自动入库** | 自动保存文件记录；后台完成后更新知识点、索引和计划，页面同步刷新 |
+| 📈 | **用证据记录进度** | 根据实际作答估计知识状态，记录辅助程度，解释下一步推荐 |
+| 💻 | **终端与网页协作** | 交互答题、JSON 输出、持久会话、进度恢复与独立学习空间 |
 
-- 通用模型适配器对接 **OpenAI-compatible `/chat/completions` 接口**。
-- CLI 是 StudyAgent 的 HTTP 客户端，使用时需要一个正在运行的 StudyAgent 后端。
-- CLI 不是 Codex CLI 或 Claude Code 的模型适配器；本项目目前没有将这些命令行工具作为模型后端接入。
-- 新增 `openai_files` 原生 Files + Responses 适配器，仅开放实际探测成功的 PDF；DOCX、EPUB 暂不支持。
-- 远端 Embedding 为可选项，默认可用关键词检索；pgvector 需要管理员另行安装初始化。BKT、间隔复习与主动提醒属于后续阶段。
-- 不引入或运行本地 Embedding、PDF／EPUB／DOCX 正文解析和 OCR。
-- 课程、题目及其参考答案由模型生成，均不代表已核实的权威内容或最新考试大纲。
+> **当前状态**：M1 学习闭环与 M2 私人教材代码已实现。真实 BYOK 教材样例、pgvector 扩展和 Docker 部署仍需在目标环境验收；M3／M4 尚未实现。[查看验收记录](docs/acceptance.md)
 
-## 阶段二：上传教材、检索与引用
+<a id="preview"></a>
 
-已有项目先升级数据库并重启后端：
+## 界面预览
+
+### 教材检索：从答案回到出处
+
+检索结果保留文件和章节信息，可下载原文核对；未验证的页码不会被包装成可靠引用。
+
+![私人教材的关键词检索、章节摘要与来源引用](docs/assets/m2-library.png)
+
+### 知识地图：上传之后，自动更新
+
+上传任务完成后，新知识点会进入数据库与知识地图。**新增内容保持待诊断，上传和阅读不会直接增加掌握度。**
+
+![上传后自动加入知识地图的新概念，状态仍为待诊断](docs/assets/auto-upload-database.png)
+
+<sub>截图来自本机真实界面的独立演示账号，使用明确标注的固定样例；不代表真实服务商已理解教材。当前 Web 界面以中文为主，英文 README 不表示界面已完成英文翻译。</sub>
+
+## 学习流程
+
+![从目标、诊断、教学、练习到证据更新和下一步推荐的学习流程](docs/assets/learning-loop.zh-CN.svg)
+
+- **没有教材**：由用户模型生成候选课程与教学内容，保留待核实标记。
+- **上传教材**：先检索用户资料；证据不足时默认停止新教学，通用知识补充需单独授权。
+- **形成进度**：作答保存为学习证据，再由规则更新状态与计划；阅读记录与掌握证据分别处理。
+
+<a id="quick-start"></a>
+
+## 快速开始
+
+### 1. 安装并启动
+
+准备 **Python 3.12+、uv**；使用 Web 还需要 **Node.js 22+、npm**。以下命令适用于 macOS／Linux，Windows 可使用 WSL。
 
 ```bash
-.venv/bin/alembic -c backend/alembic.ini upgrade head
+git clone https://github.com/wwwuxy/Study-Agent-Framework.git
+cd Study-Agent-Framework
+
+# 安装后端、CLI、Web 依赖，生成本机配置并迁移数据库
+./scripts/setup.sh
+
+# 保持此终端运行：后端同时托管已构建的 Web 页面
 ./scripts/serve.sh
 ```
 
-另开终端，激活虚拟环境并登录。新建一个支持原生文件输入的模型配置：
+打开 **[http://127.0.0.1:8000](http://127.0.0.1:8000)**：注册／登录 → 添加并测试模型 → 创建学习空间 → 开始诊断与学习。
 
-```bash
-source .venv/bin/activate
-study-agent auth login --username 你的账号
-study-agent provider add --name '我的文件模型' --files \
-  --model '服务商的文件模型ID' --base-url 'https://你的服务商/v1' \
-  --accept-data-transfer
-study-agent provider test PROVIDER_ID
-study-agent space switch-provider SPACE_ID --provider PROVIDER_ID
-study-agent space use SPACE_ID
-```
+安装脚本不会覆盖已有 `.env`，也不会默认开启演示。已有用户升级后重启 `serve.sh` 即会执行数据库迁移。
 
-检测会上传框架生成的随机标识 PDF，实际读回后才开放 PDF；只支持聊天的连接会明确禁用上传。文件探测可能产生费用，检测文件会尝试远端删除。需要服务商同时实现聊天、Files、Responses 和文件删除协议，具体模型必须自行检测。
+<details>
+<summary><strong>只用 CLI，或进行 Web 开发</strong></summary>
 
-```bash
-study-agent material upload '/绝对路径/教材.pdf' \
-  --accept-file-transfer --request-id textbook-001
-study-agent job wait JOB_ID --seconds 180
-study-agent material list
-study-agent material show MATERIAL_ID
-study-agent material search '进程调度' --mode keyword
-study-agent diagnose
-study-agent learn
-```
-
-上传成功后会立即自动写入数据库中的文件记录和处理任务；后台完成理解后，自动更新章节、知识点、来源、可选向量与学习计划，页面同步刷新资料详情和知识地图，无需手动执行 SQL 或 `job run`。新增知识点保持待诊断，已有答题证据不变。
-
-上传响应包含 `id` 和 `job_id`。默认后台按“上传 → 目录 → 各章节摘要／关键词／概念 → 可选向量 → 发布”处理，保存检查点，失败时可重试。每次上传／重新索引都须明确授权将文件发送到所选服务商，并知悉费用和第三方保留政策。默认 20 MiB、最多 20 节；原文留在本机私有目录，不执行本地正文解析。
-
-```bash
-study-agent job show JOB_ID
-study-agent job retry FAILED_JOB_ID --request-id retry-001
-study-agent job cancel JOB_ID
-study-agent material reindex MATERIAL_ID --accept-file-transfer --request-id reindex-001
-study-agent material download MATERIAL_ID --output '/新的路径/教材.pdf'
-study-agent material remove MATERIAL_ID
-# 删除返回清理任务 ID；继续 job show/wait 确认远端清理结果
-```
-
-上传资料后，新诊断与课堂优先检索教材，并显示真实文件、章节和可下载原文。当前页码无法核实，界面明确标记；模型不能编造引用。资料不足默认停止新教学，用户可通过 `space knowledge-policy SPACE_ID --allow-general-knowledge` 授权通用知识补充。索引、阅读与重索引均不会直接增加掌握度。
-
-可选向量方式需要配置并检测远端 Embedding 模型，且本次上传增加 `--embeddings`。未配置时继续使用关键词 + 用户模型精排，不运行本地向量模型。Web 的“私人教材”页面提供相同功能，以及进度、失败提示与引用查看。
-
-无需付费 Key 的资料演示可使用 `provider add --name '资料演示' --demo-files`；这是独立演示适配器，**使用固定操作系统资料，未读取上传内容**，不能代表真实文件理解成功。
-
-完整的模型配置、命令示例、检索策略、远端清理、pgvector 与部署说明见[阶段二私人教材文档](docs/m2-materials.md)。
-
-## 二、运行环境
-
-| 使用方式 | 必需环境 |
-|---|---|
-| 仅使用 CLI 与本地后端 | Python 3.12+、uv、可运行 Bash 的终端 |
-| 本地 Web 开发 | 上述环境，以及 Node.js 22+、npm |
-| Docker 部署 | Docker 与 Docker Compose；容器内安装 Python 和 Node.js 依赖 |
-| 连接已有后端的 CLI | 已安装本项目的 Python 环境，以及可访问的 StudyAgent 服务地址 |
-
-仓库中的启动脚本使用 Bash，以下示例适用于 macOS／Linux 终端。Windows 用户可在 WSL 中使用这些脚本；当前未单独验证 Windows 原生脚本流程。
-
-先进入项目根目录。后文除特别说明外，所有命令都从项目根目录执行。
-
-```bash
-cd /你的项目目录/Study-Agent-Framework
-python3.12 --version
-uv --version
-```
-
-安装脚本默认寻找 `python3.12`。如果本机的兼容 Python 使用其他名称，可以显式指定：
-
-```bash
-PYTHON_BIN=python3 ./scripts/setup.sh --backend-only
-```
-
-`PYTHON_BIN` 指向的解释器仍须满足 Python 3.12+。首次安装需要下载依赖；uv 安装方式可参考其[官方安装文档](https://docs.astral.sh/uv/getting-started/installation/)。
-
-## 三、CLI 快速开始
-
-### 1. 安装 CLI 和后端
-
-仅使用终端学习时，不需要安装 Node.js，也不需要启动 Web 开发服务器。
+只安装 CLI 与后端，不需要 Node.js：
 
 ```bash
 ./scripts/setup.sh --backend-only
-```
-
-该命令会：
-
-1. 创建项目内的 `.venv` 虚拟环境并安装锁定的后端开发依赖。
-2. 安装 `study-agent` 命令。
-3. 在 `.env` 不存在时生成本地开发配置、独立凭证加密密钥和数据库密码。
-4. 创建数据目录，并执行 Alembic 数据库迁移。
-
-脚本不会覆盖已有 `.env`，也不会默认启用离线演示。
-
-激活虚拟环境并查看命令：
-
-```bash
-source .venv/bin/activate
-study-agent --help
-```
-
-也可以不激活环境，直接使用完整入口：
-
-```bash
-.venv/bin/study-agent --help
-.venv/bin/python -m app.cli --help
-```
-
-### 2. 在终端一启动后端
-
-```bash
 ./scripts/serve.sh
 ```
 
-后端默认监听 `http://127.0.0.1:8000`。保持这个终端运行；使用完毕后可按 `Ctrl-C` 停止服务。
+Web 开发模式（自动启动后端与 Vite）：
 
-如果同一地址已有 StudyAgent 后端运行，直接连接已有服务即可，不要重复启动占用相同端口的进程。
+```bash
+./scripts/dev.sh
+# 网页：http://localhost:5173
+# 后端：http://127.0.0.1:8000
+```
 
-### 3. 在终端二注册或登录
+`serve.sh` 与 `dev.sh` 任选一种运行，避免同时占用 8000 端口。
 
-另开一个终端，进入相同项目目录并激活环境：
+</details>
+
+<a id="cli"></a>
+
+### 2. 在终端开始学习
+
+另开终端，进入项目目录。密码和 API Key 使用隐藏输入，不必放进命令历史。
 
 ```bash
 source .venv/bin/activate
 study-agent auth register --username yourname
-```
+# 已有账号：study-agent auth login --username yourname
 
-程序会提示输入密码，输入过程不回显。用户名允许 3～64 位字母、数字、下划线和短横线；密码长度为 10～128 位。注册成功后会建立登录会话。
-
-已有账号时，改用：
-
-```bash
-study-agent auth login --username yourname
-study-agent auth status
-```
-
-### 4. 配置自己的模型
-
-```bash
-study-agent provider add \
-  --name '我的学习模型' \
+study-agent provider add --name '我的学习模型' \
   --model '服务商提供的聊天模型ID' \
-  --base-url 'https://api.example.com/v1' \
+  --base-url 'https://你的服务商/v1' \
   --accept-data-transfer
 ```
 
-请将示例中的模型 ID 和地址替换为服务商实际提供的值；`api.example.com` 只是占位地址。API Key 通过终端隐藏输入，不作为明文命令行参数传入。
-
-| 参数 | 含义 |
-|---|---|
-| `--name` | 方便辨认的模型连接名称 |
-| `--model` | 服务商实际使用的聊天模型 ID，不是自定义显示名称 |
-| `--base-url` | 模型服务的兼容接口根地址，例如以 `/v1` 结尾的地址；不要再追加 `/chat/completions` |
-| `--accept-data-transfer` | 确认授权将学习目标、教学上下文和答案发送至该第三方服务，并知悉调用可能产生费用 |
-
-成功后会输出模型配置的完整 ID。可以再次查看：
-
-```bash
-study-agent provider list
-```
-
-将后文的 `PROVIDER_ID` 替换为此处返回的完整 ID，不要原样输入占位符。
-
-### 5. 测试模型连接
+将返回的完整模型 ID 替换到 `PROVIDER_ID`，然后执行：
 
 ```bash
 study-agent provider test PROVIDER_ID
-study-agent provider capabilities PROVIDER_ID
-```
+study-agent space create --goal '系统学习操作系统' \
+  --provider PROVIDER_ID --minutes 30
 
-检测会实际调用模型，验证聊天与结构化输出，可能产生服务商费用。只有通过检测的配置才能用于创建学习空间。
-
-聊天模型可用，不等于它支持文件、Embedding、联网或工具调用。当前通用适配器不会宣称这些未实现的能力可用。
-
-### 6. 创建学习目标
-
-```bash
-study-agent space create \
-  --goal '系统学习操作系统，理解进程、内存与文件系统' \
-  --provider PROVIDER_ID \
-  --minutes 30
-```
-
-`--goal` 和 `--provider` 必填，其余参数可选：
-
-| 参数 | 默认值 | 说明 |
-|---|---|---|
-| `--minutes` | `30` | 每日可用时间，范围 5～480 分钟 |
-| `--target-date` | 不设置 | 目标日期，格式为 `YYYY-MM-DD` |
-| `--level` | `基础掌握` | 预期学习水平 |
-| `--request-id` | 自动生成 | 初始化幂等键，用于复用相同请求重试 |
-
-例如，为备考目标补充日期与预期水平：
-
-```bash
-study-agent space create \
-  --goal '复习操作系统基础知识' \
-  --provider PROVIDER_ID \
-  --minutes 45 \
-  --target-date 2026-12-31 \
-  --level '能独立完成基础分析题'
-```
-
-创建成功后，CLI 会自动选中新空间。课程初始化会调用所选模型，等待时间取决于服务商响应。
-
-### 7. 开始诊断和学习
-
-```bash
 study-agent diagnose
 study-agent learn
 study-agent progress
 study-agent next
 ```
 
-- `diagnose`：生成或读取初始诊断题，在终端逐题作答。
-- `learn`：开始或继续一节课堂，阅读讲解、查看示例并完成练习。
-- `progress`：查看各知识点的状态、有效证据数和独立达标次数。
-- `next`：查看系统推荐的下一学习动作及理由。
+模型 ID 与地址须由服务商提供。`--accept-data-transfer` 表示授权将学习目标、上下文与答案发送至该服务商，知悉可能产生的费用与保留政策。
 
-## 四、不使用付费 API 的离线演示
+### 3. 暂时没有付费 Key？先体验演示
 
-如果希望先熟悉流程，可以使用固定的操作系统演示课程。
-
-**终端一：启动允许演示的后端。**
+启动后端时明确开启演示：
 
 ```bash
 ENABLE_FAKE_PROVIDER=true ./scripts/serve.sh
 ```
 
-如果后端已经运行，需要先停止，再用上述方式重新启动。仅在 CLI 进程前设置这个变量，不会改变已运行后端的配置。
-
-**终端二：注册账号并添加演示连接。**
+在已登录的另一个终端中：
 
 ```bash
-source .venv/bin/activate
-study-agent auth register --username demo_learner
-study-agent provider add --name '操作系统离线演示' --demo
-```
-
-记下输出的模型 ID，替换以下 `PROVIDER_ID`：
-
-```bash
+study-agent provider add --name '操作系统演示' --demo
 study-agent provider test PROVIDER_ID
 study-agent space create --goal '学习操作系统' --provider PROVIDER_ID
 study-agent diagnose
 study-agent learn
-study-agent progress
 ```
 
-演示模式不连接远端模型、不产生模型 API 费用。它只返回固定操作系统样例，不会根据任意学习目标生成真实课程，也不会在真实模型失败时被静默用作回退。
+这里的 `PROVIDER_ID` 使用本次演示配置返回的 ID。演示使用固定操作系统样例，不访问付费模型，也不会在真实服务失败后静默回退为演示。
 
-还可以生成已经包含诊断历史的演示账号：
+<a id="materials"></a>
 
-```bash
-ENABLE_FAKE_PROVIDER=true .venv/bin/python scripts/seed_demo.py
-```
+## 把自己的教材带进来
 
-账号信息写入 `data/demo-access.txt`，文件权限为 `0600`，不纳入版本控制。查看其中的信息后，使用 `auth login` 登录，再执行 `space list` 和 `space use SPACE_ID` 选择演示空间。重复生成同一账号时，需要提供原来的 `DEMO_PASSWORD`，或使用新的 `DEMO_USERNAME`；脚本不会重置已有账号密码。
+### 先验证文件能力，再上传
 
-## 五、日常学习与进度恢复
-
-### 交互答题
-
-在 `diagnose` 和 `learn` 的答题提示中，可以输入：
-
-| 输入 | 行为 |
-|---|---|
-| 选项键，例如 `A` | 提交选择题答案 |
-| 回答文本 | 提交开放题答案，由模型按评分准则评估 |
-| `/hint` | 请求提示，并在服务端记录提示使用情况 |
-| `/skip` | 跳过当前题，不提交答案 |
-| `/quit` | 结束本次交互，保留已提交的记录 |
-
-课堂讲解结束后，按提示回车记录阅读经历。阅读记录和答题证据是两件不同的事，阅读不会直接增加掌握度。
-
-每次答题提交后，后端立即保存对应记录。初始诊断再次执行时，会读取同一批题目，展示已答题的反馈，并继续未答题。
-
-`learn` 会优先恢复最新课堂中的未读内容或未完成练习；当前课堂全部完成后，再请求下一课堂。即使执行 `learn --new`，也会优先恢复尚未完成的练习。
-
-### 下次继续学习
-
-如果后端已停止，先重新启动。然后在 CLI 终端执行：
+聊天可用并不意味着文件可用。新建原生文件配置，使用实际支持 Files + Responses 协议的服务和模型：
 
 ```bash
-source .venv/bin/activate
-study-agent auth status
-study-agent space list
-study-agent learn
-```
-
-会话有效且当前空间已保存时，无需每次重新登录或重新选空间。会话过期或已退出登录时：
-
-```bash
-study-agent auth login --username yourname
-study-agent space list
+study-agent provider add --name '我的文件模型' --files \
+  --model '服务商提供的文件理解模型ID' \
+  --base-url 'https://你的服务商/v1' --accept-data-transfer
+study-agent provider test FILE_PROVIDER_ID
+study-agent space switch-provider SPACE_ID --provider FILE_PROVIDER_ID
 study-agent space use SPACE_ID
-study-agent learn
 ```
 
-重新登录会清除 CLI 中旧账号的当前空间选择，需要重新选择空间；后端中的学习历史仍然保留。
+`FILE_PROVIDER_ID` 与 `SPACE_ID` 分别替换为模型配置和学习空间的完整 ID。检测会上传框架生成的随机标识 PDF，实际读回后才开放 PDF，并尝试删除测试文件；检测可能产生费用。
 
-### 如何理解掌握状态
+```bash
+study-agent material upload '/绝对路径/教材.pdf' \
+  --accept-file-transfer --request-id textbook-001
 
-| 状态 | 含义 |
+# 可选：查询处理进度。后台已自动开始，不需要 job run。
+study-agent job wait JOB_ID --seconds 180
+study-agent material search '进程调度' --mode keyword
+study-agent material show MATERIAL_ID
+```
+
+| 自动更新阶段 | 持久化内容 |
 |---|---|
-| `unknown`／待诊断 | 尚无足够、可归因的有效测评证据，不等于认定不会 |
-| `learning`／学习中 | 已有证据，尚未达到当前规则的掌握门槛 |
-| `mastered`／已掌握 | 达到规则估计的初步掌握门槛，仍需后续表现验证 |
+| 上传成功 | 文件元数据、哈希、所属空间和处理任务 |
+| 后台理解 | 上传引用、目录、章节进度与可恢复检查点 |
+| 校验并发布 | 章节、摘要、知识点、来源、可选向量和更新后的学习计划 |
+| 页面同步 | 自动刷新资料详情、知识地图与计划；重启后仍可读取数据库记录 |
 
-当前使用可解释的 `rules_v1`：至少在两道不同题上独立达标、满足难度要求且综合证据达标，才可能被标记为已掌握。最近的有效错误可使状态回到学习中；提示下答对权重较低。
+默认单文件 **20 MiB**、最多 **20 个章节**，后台 worker 默认启用。每次上传／重新索引均需单独授权；处理失败可以重试，取消后可重新索引。
 
-低置信度评分、阅读和仅有未经外部验证的 LLM 开放回答评分，不会直接触发“已掌握”。综合题答错也不会自动将所有关联概念都判为不掌握。当前规则尚未经过教育测量校准，状态是估计，不是权威成绩。
+<details>
+<summary><strong>资料管理、检索选项与能力矩阵</strong></summary>
 
-## 六、CLI 命令参考
+```bash
+study-agent material list
+study-agent job show JOB_ID
+study-agent job retry FAILED_JOB_ID --request-id retry-001
+study-agent job cancel JOB_ID
+study-agent material reindex MATERIAL_ID --accept-file-transfer
+study-agent material download MATERIAL_ID --output '/新的路径/教材.pdf'
+study-agent material remove MATERIAL_ID
+```
 
-### 账号与会话
+删除立即移除本地原文和索引，另行执行远端清理；清理失败仍会显示提示与可重试任务。下载不会覆盖已有文件。
 
-| 命令 | 用途 |
+| 模型配置 | 聊天／JSON | PDF | 远端 Embedding |
+|---|---|---|---|
+| 默认兼容聊天接口 | 实际检测 | 不开放 | 不开放 |
+| `--files` 原生接口 | 实际检测 | 随机文件探测通过后开放 | 配置模型并检测通过后可选 |
+| `--demo` | 固定演示 | 不支持 | 不支持 |
+| `--demo-files` | 固定演示 | 固定资料样例，未读取上传内容 | 可选演示向量 |
+
+默认使用**关键词 + 用户模型精排**，不需要向量模型。需要向量方式时，在原生配置中增加 `--embedding-model '向量模型ID'`、重新检测，并在本次上传／重索引增加 `--embeddings`。查询时可用 `--mode embedding`；数据库 pgvector 扩展需要管理员额外安装与初始化。
+
+当前只开放实际验证的 PDF，不支持 DOCX／EPUB。远端文件保留时间与费用遵循所选服务商政策；框架不运行本地正文解析、OCR 或本地 Embedding。[完整教材指南](docs/m2-materials.md)
+
+</details>
+
+## 日常命令速查
+
+| 任务 | 命令 |
 |---|---|
-| `study-agent auth register --username NAME` | 注册并登录 |
-| `study-agent auth login --username NAME` | 登录已有账号 |
-| `study-agent auth status` | 查看当前登录用户 |
-| `study-agent auth logout` | 撤销当前会话，并清除本地登录与空间选择 |
+| 继续上次学习 | `study-agent learn` |
+| 查看知识状态与证据 | `study-agent progress` |
+| 查看计划与下一步 | `study-agent plan` / `study-agent next` |
+| 切换学习空间 | `study-agent space list` → `study-agent space use SPACE_ID` |
+| 查看学习事件与调用用量 | `study-agent events` / `study-agent runs` |
+| 输出 JSON，便于脚本调用 | `study-agent --json progress` |
+| 连接其他后端 | `study-agent --server https://study.example.com auth login --username yourname` |
 
-### 模型连接
+交互答题支持 `/hint`、`/skip`、`/quit`；全局 `--json`、`--server` 等选项放在主命令之前。CLI 与 Web 需要各自登录，但共享后端学习记录。[CLI 详细说明](docs/cli.md)
 
-```bash
-study-agent provider list
-study-agent provider test PROVIDER_ID
-study-agent provider capabilities PROVIDER_ID
+## 配置与数据
 
-# 修改显示名称
-study-agent provider update PROVIDER_ID --name '新的连接名称'
+完整模板见 [`.env.example`](.env.example)，更多配置、Docker 部署和故障排查见[中文完整手册](docs/usage.zh-CN.md)。
 
-# 修改聊天模型；之后需要重新检测
-study-agent provider update PROVIDER_ID --model '新的模型ID'
-
-# 更新 API Key，终端隐藏输入；之后需要重新检测
-study-agent provider update PROVIDER_ID --rotate-key
-
-# 修改服务地址时，需要再次明确第三方数据发送授权
-study-agent provider update PROVIDER_ID \
-  --base-url 'https://api.example.com/v1' \
-  --accept-data-transfer
-
-study-agent provider test PROVIDER_ID
-
-# 只能删除未被学习空间使用的模型配置
-study-agent provider remove UNUSED_PROVIDER_ID
-```
-
-更换 Key、模型或地址后，原来的能力检测成功标识会失效，必须重新测试。修改名称不会清空学习记录。
-
-### 学习空间
-
-```bash
-study-agent space list
-study-agent space use SPACE_ID
-study-agent space show SPACE_ID
-
-# 换用另一个已通过检测的模型，保留学习历史
-study-agent space switch-provider SPACE_ID --provider OTHER_PROVIDER_ID
-```
-
-`space use` 会保存默认空间。学习命令中的 `--space` 只改变本次操作的空间，不改写默认选择：
-
-```bash
-study-agent progress --space SPACE_ID
-study-agent diagnose --space SPACE_ID
-study-agent learn --space SPACE_ID
-```
-
-### 学习、证据和计划
-
-| 命令 | 用途 |
+| 配置 | 默认值／作用 |
 |---|---|
-| `study-agent diagnose` | 初始诊断与续做 |
-| `study-agent learn` | 开始或继续课堂 |
-| `study-agent learn --new` | 请求下一课堂，仍优先恢复未完成内容 |
-| `study-agent progress` | 知识状态和证据概览 |
-| `study-agent next` | 下一动作及推荐理由 |
-| `study-agent plan` | 已保存的学习计划 |
-| `study-agent events` | 本空间的学习事件 |
-| `study-agent runs` | 最近的模型调用、耗时、用量及错误记录 |
-| `study-agent hint ITEM_ID` | 为指定题目请求提示 |
-| `study-agent answer ITEM_ID --answer A` | 提交指定题目的答案 |
-| `study-agent lesson-complete LESSON_ID` | 记录已阅读指定课堂讲解 |
-
-这里的 `SPACE_ID`、`ITEM_ID` 和 `LESSON_ID` 均是服务端返回的完整 ID。需要程序化获取时可使用 JSON 输出。
-
-### 全局选项
-
-全局选项放在子命令之前：
-
-```bash
-study-agent --server https://study.example.com --json space list
-study-agent --timeout 120 diagnose
-study-agent --config-dir ./data/cli-account-a auth login --username yourname
-```
-
-| 选项 | 默认值 | 说明 |
-|---|---|---|
-| `--server` | `http://127.0.0.1:8000` | StudyAgent 后端根地址，不附带 `/api/v1` |
-| `--config-dir` | 用户配置目录下的 `study-agent` | 存放 CLI 会话及空间选择，建议使用独立目录 |
-| `--json` | 关闭 | JSON 输出，同时关闭交互答题循环 |
-| `--timeout` | `100` | CLI HTTP 请求超时，允许 1～300 秒，不改变服务端任务时限 |
-| `--help` | — | 查看当前命令帮助 |
-
-各级命令均可查看帮助：
-
-```bash
-study-agent --help
-study-agent provider add --help
-study-agent space create --help
-study-agent learn --help
-```
-
-## 七、JSON 输出与脚本调用
-
-### 获取内容而不进入交互
-
-```bash
-study-agent --json space list
-study-agent --json diagnose
-study-agent --json learn
-study-agent --json progress
-```
-
-也可以输出面向人的文本，但不进入答题循环：
-
-```bash
-study-agent diagnose --no-interactive
-study-agent learn --no-interactive
-```
-
-上述命令仍可能生成课程、题目或讲解，从而调用模型；“不交互”只表示不会自动记录阅读或提交答案。非 TTY 管道输入同样不会触发交互答题循环。
-
-### 通过环境变量提供凭证
-
-CLI 不提供明文 `--password` 或 `--api-key` 参数。脚本可以从已经设置的环境变量读取凭证：
-
-```bash
-# MY_PASSWORD、MY_LLM_KEY 应事先由你自己的环境或密钥管理方式设置
-study-agent auth login --username yourname --password-env MY_PASSWORD
-
-study-agent provider add \
-  --name '脚本使用的模型' \
-  --model '服务商模型ID' \
-  --api-key-env MY_LLM_KEY \
-  --accept-data-transfer
-```
-
-未指定变量名时，也可使用 `STUDY_AGENT_PASSWORD` 和 `STUDY_AGENT_API_KEY`。密码和模型 Key 不会写入 CLI 状态文件。
-
-### 指定提交幂等键
-
-```bash
-study-agent --json answer ITEM_ID \
-  --answer A \
-  --request-id my-answer-001
-
-study-agent --json lesson-complete LESSON_ID \
-  --request-id my-reading-001
-```
-
-网络超时不代表服务端没有完成。重试时应使用**相同幂等键和相同请求内容**；CLI 的相关错误输出会包含该键。已答题不能通过更换幂等键重复增加掌握证据。
-
-如果答案是在提示或解答辅助下完成的，可以显式标注：
-
-```bash
-study-agent answer ITEM_ID --answer A --assistance hint
-```
-
-服务端也会检查已经记录的提示事件，不能通过传入 `none` 隐藏提示使用情况。
-
-### 退出码与错误输出
-
-| 退出码 | 含义 |
-|---|---|
-| `0` | 命令成功 |
-| `1` | 运行或接口错误，例如连接失败、鉴权失败、模型调用失败 |
-| `2` | 参数、输入或前置条件问题，例如尚未选择空间 |
-| `130` | `Ctrl-C` 或输入结束导致交互停止 |
-
-`--json` 模式下，运行错误以 JSON 输出，例如：
-
-```json
-{"error":{"code":"no_active_space","message":"尚未选择学习空间。请运行 space create 或 space use ID。"}}
-```
-
-命令行语法错误仍遵循 argparse 的标准行为，输出到 stderr，退出码为 `2`。
-
-## 八、Web 界面使用
-
-希望使用浏览器时，需要 Node.js 22+ 和 npm：
-
-```bash
-./scripts/setup.sh
-./scripts/dev.sh
-```
-
-`dev.sh` 会同时启动后端和 Vite 前端。运行前，请先停止占用同一后端端口的 `serve.sh` 进程。
-
-| 地址 | 用途 |
-|---|---|
-| [http://localhost:5173](http://localhost:5173) | Web 开发界面 |
-| [http://localhost:8000/docs](http://localhost:8000/docs) | Swagger 交互式 API 文档 |
-| [http://localhost:8000/redoc](http://localhost:8000/redoc) | API 文档阅读界面 |
-| [http://localhost:8000/health](http://localhost:8000/health) | 后端健康检查 |
-
-网页使用流程：注册或登录 → 模型与设置 → 添加并测试模型 → 新建学习空间 → 初始诊断 → 专属课堂 → 查看知识状态与学习记录。
-
-CLI 和浏览器需要各自登录；账号、后端服务和学习空间相同时，学习记录相通，本地登录会话不需要共享。
-
-## 九、配置项说明
-
-### 后端配置：`.env`
-
-模板位于 [.env.example](.env.example)。后端从项目根目录读取 `.env`，环境变量可覆盖同名配置。修改后需重启后端。
-
-| 配置项 | 模板默认值 | 说明 |
-|---|---|---|
-| `CREDENTIAL_ENCRYPTION_KEY` | 空 | 后端加密模型 API Key 的 Fernet 主密钥；首次 setup 自动生成 |
-| `DATABASE_URL` | `sqlite:///./data/study.db` | SQLAlchemy 数据库连接地址 |
-| `ALLOW_PRIVATE_PROVIDER_URLS` | `false` | 是否允许模型地址指向内网；默认阻止非公网地址 |
-| `ENABLE_FAKE_PROVIDER` | `false` | 是否允许创建离线演示模型配置 |
-| `COOKIE_SECURE` | `true` | HTTPS 部署启用；setup 生成的本机 HTTP 开发配置会设为 `false` |
-| `FRONTEND_ORIGIN` | `http://localhost:5173` | 允许的前端来源，用于写请求 Origin 校验 |
-| `FRONTEND_DIST` | `frontend/dist` | 后端可直接托管的前端构建目录 |
-| `STRUCTURED_RETRIES` | `2` | 结构化输出的额外重试次数，允许 0～3 |
-| `PROVIDER_CALLS_PER_MINUTE` | `30` | 每用户模型任务入口的应用内限流次数 |
-| `SESSION_HOURS` | `168` | 登录会话有效期，单位小时 |
-| `POSTGRES_PASSWORD` | 空 | Docker Compose 使用的 PostgreSQL 密码；首次 setup 自动生成 |
-
-`.env.example` 是模板，不是可以直接运行的完整配置。若手工复制 `.env`，需填好加密主密钥和所需数据库密码；已有 `.env` 不会被安装脚本覆盖。
-
-`CREDENTIAL_ENCRYPTION_KEY`、账号密码和模型 API Key 是三种不同的凭证：主密钥由部署者保管，账号密码用于登录 StudyAgent，API Key 用于访问模型服务。
-
-### CLI 配置：终端环境变量
-
-CLI 直接读取进程环境，**不会自动加载后端 `.env` 中的 CLI 专属变量**。
-
-| 环境变量 | 用途 |
-|---|---|
-| `STUDY_AGENT_SERVER` | CLI 默认连接的后端根地址 |
-| `STUDY_AGENT_CONFIG_DIR` | CLI 本地会话目录 |
-| `XDG_CONFIG_HOME` | 未指定专用目录时，作为用户配置目录的根路径 |
-| `STUDY_AGENT_PASSWORD` | 隐藏输入密码之外的默认环境变量来源 |
-| `STUDY_AGENT_API_KEY` | 隐藏输入模型 Key 之外的默认环境变量来源 |
-
-例如，连接已有的 HTTPS 后端：
-
-```bash
-export STUDY_AGENT_SERVER='https://study.example.com'
-study-agent auth login --username yourname
-```
-
-CLI 服务地址与模型服务地址的区别：
-
-| 地址 | 配置方式 | 示例 |
-|---|---|---|
-| StudyAgent 后端 | `study-agent --server ...` | `http://127.0.0.1:8000` |
-| 大模型服务 | `provider add --base-url ...` | `https://api.example.com/v1` |
-
-### 启动脚本配置
-
-| 环境变量 | 用途 |
-|---|---|
-| `PYTHON_BIN` | 首次创建虚拟环境时使用的 Python，默认 `python3.12` |
-| `STUDY_AGENT_PORT` | `serve.sh` 的监听端口，默认 `8000` |
-| `UV_CACHE_DIR` | 自定义 uv 缓存目录 |
-| `STUDY_AGENT_NPM_CACHE` | 自定义 setup 脚本使用的 npm 缓存目录 |
-
-例如，后端改用另一个本机端口时，CLI 也需要连接相应地址：
-
-```bash
-# 终端一
-STUDY_AGENT_PORT=8001 ./scripts/serve.sh
-
-# 终端二
-study-agent --server http://127.0.0.1:8001 auth login --username yourname
-```
-
-## 十、数据存储、凭证与隐私
-
-### 后端数据库
-
-本地开发默认使用 `data/study.db`，SQLite 还可能生成相关日志文件。数据库保存用户、加密模型凭证、课程、题目、作答、学习事件、知识状态、学习计划和模型执行记录。
-
-- SQLite 仅用于单进程本地开发；多 worker 或正式部署应使用 PostgreSQL。
-- 学习事件由数据库触发器保护为只追加，状态和计划可根据事件重算。
-- 切换模型不会清空学习历史。
-- 不同数据库是独立的数据存储；切换 `DATABASE_URL` 不会自动迁移旧数据。
-
-### CLI 本地状态
-
-默认位置为 `$XDG_CONFIG_HOME/study-agent/state.json`，未设置 XDG 时为 `~/.config/study-agent/state.json`。可通过 `--config-dir` 或 `STUDY_AGENT_CONFIG_DIR` 改到独立目录。
-
-目录权限为 `0700`，状态文件权限为 `0600`。文件只保存会话 Cookie、账号 ID 和当前空间选择，不保存密码、模型 API Key、作答全文或教材。不同服务端点的会话分别存储。
-
-会话 Cookie 相当于登录凭证，不应共享或提交到版本控制。多账号使用时，建议各自指定配置目录；同一配置目录建议同时只管理一个 CLI 账号会话。
-
-### 模型凭证与调用边界
-
-- API Key 在后端通过 Fernet 加密保存，不通过查询接口回传原文。
-- 自定义模型地址默认进行 SSRF 检查，拒绝非公网地址；自托管内网模型需要管理员明确放开。
-- 模型输出经过结构化和业务规则校验，不能直接覆盖知识掌握度或执行服务器命令。
-- 日志和调用记录不保存密码、API Key 或敏感答案正文；作答本身由后端受权限控制的数据表保存。
-- 教学任务由用户操作触发；教材处理和远端清理会在本次上传／删除授权后于后台继续，有进度、取消和有界恢复。当前不实现主动学习提醒。
-- 单次模型任务总时限为 90 秒，并有有界重试。令牌用量与可得费用信息会记录；服务商未提供可靠金额时明确显示“未提供”，当前不承诺货币预算硬限额。
-
-备份学习数据时，应同时妥善保管数据库和对应加密主密钥。直接换掉主密钥会导致已有密文无法解密；丢失后需要重新配置模型 API Key。
-
-## 十一、PostgreSQL 与 Docker 部署
-
-### 使用 Docker Compose
-
-仓库提供多阶段 Dockerfile：先构建 Web，再将后端与静态页面放入应用镜像。Compose 同时启动 PostgreSQL 16 和应用服务。
-
-先准备包含 `CREDENTIAL_ENCRYPTION_KEY`、`POSTGRES_PASSWORD` 的 `.env`。前面的 setup 步骤已经生成这些值；也可按模板自行配置。
-
-本机 HTTP 演示启动方式：
-
-```bash
-COOKIE_SECURE=false FRONTEND_ORIGIN=http://localhost:8000 docker compose up --build
-```
-
-访问 [http://localhost:8000](http://localhost:8000)。CLI 可以连接相同后端地址。
-
-Compose 配置中的应用端口只绑定到本机 `127.0.0.1:8000`，数据库不映射主机端口；数据库数据保存在命名卷 `postgres_data` 中，教材原文保存在 `material_data` 卷中。容器中的 `DATABASE_URL` 会使用 PostgreSQL，不沿用本地 SQLite。
-
-停止服务：
-
-```bash
-docker compose down
-```
-
-这个命令不删除数据库命名卷。删除命名卷会丢失其中的数据，应按实际备份和运维流程处理。
-
-### HTTPS 部署
-
-通过可信反向代理提供 HTTPS 时，应设置 `COOKIE_SECURE=true` 和实际使用的 `FRONTEND_ORIGIN`，并保留默认的模型地址访问限制。多副本发布时，数据库迁移应作为独立发布步骤执行。
-
-当前应用内限流适合单实例 MVP，多副本部署需要共享限流设施或网关。Docker 配置已提供，但本次开发环境没有实际运行 Docker 容器；部署环境仍需单独验证。
-
-## 十二、测试、构建与数据库迁移
-
-### 仅后端和 CLI
-
-在执行过 `setup.sh --backend-only` 后，可以运行：
-
-```bash
-.venv/bin/pytest backend/tests -q
-.venv/bin/pytest backend/tests/test_cli.py -q
-.venv/bin/ruff check backend
-.venv/bin/ruff format --check backend
-```
-
-测试使用 Fake Adapter 或 HTTP 传输替身，不需要真实付费 API Key。CLI 集成测试保留真实鉴权、数据库迁移、评分与状态逻辑。
-
-### 包含前端的完整检查
-
-先执行完整的 `./scripts/setup.sh` 安装前端依赖，再运行：
+| `CREDENTIAL_ENCRYPTION_KEY` | 首次 setup 生成，用于后端加密 API Key；备份时单独妥善保管 |
+| `DATABASE_URL` | `sqlite:///./data/study.db`；可切换 PostgreSQL |
+| `MATERIAL_WORKER_ENABLED` | `true`，上传后自动处理并更新数据库 |
+| `MATERIAL_MAX_BYTES` / `MATERIAL_MAX_SECTIONS` | `20971520` / `20` |
+| `PGVECTOR_ENABLED` | `false`；开启前先安装扩展并执行 `scripts/pgvector.sql` |
+| `ENABLE_FAKE_PROVIDER` | `false`，显式开启后才能使用演示 |
+| `COOKIE_SECURE` | HTTPS 部署保持 `true`；setup 生成的本机 HTTP 配置为 `false` |
+
+- **原文与索引分别保存**：原文在本机私有目录；元数据、章节和学习记录在数据库。备份时同时保存数据库、资料目录与对应加密主密钥。
+- **用户模型处理资料**：目标、答案与授权文件会发给用户选择的远端服务，模型调用可能产生费用。
+- **权限按用户和空间隔离**：CLI 本地状态只保存会话和空间选择，API Key 在后端加密保存。
+- **内容仍需核实**：模型生成的课程、摘要与评分不等于权威核验；当前规则估计没有做教育测量校准。
+
+## 开发与验证
 
 ```bash
 ./scripts/check.sh
-```
+# Ruff、格式、Shell 语法、Python 测试、前端测试与生产构建
 
-该脚本执行 Python 静态检查、格式检查、Shell 语法检查、Python 测试、前端测试和生产构建。
-
-也可单独执行：
-
-```bash
-npm --prefix frontend test
-npm --prefix frontend run build
-```
-
-M1＋CLI 基线为 63 项 Python 与 3 项前端测试。M2 新增资料、原生接口和 CLI 资料回归，并重新运行 SQLite、PostgreSQL、前端与真实 HTTP 联调。最终结果与未验证的真实 BYOK／pgvector 范围见[验收记录](docs/acceptance.md)。
-
-### PostgreSQL 集成测试
-
-在专用测试数据库中运行：
-
-```bash
+# 专用 PostgreSQL 测试数据库；不要使用生产库
 TEST_DATABASE_URL='postgresql+psycopg://user:password@localhost/study_agent_test' \
   .venv/bin/pytest backend/tests -q
 ```
 
-每个集成测试会创建独立 schema，并在结束后删除；测试账号需要相应权限。不要把业务生产数据库当作测试数据库使用。
+已有验证覆盖自动后台入库、重启恢复、引用隔离、删除竞态、计划同步与并发答题。验收使用显式演示适配器和协议替身；真实 BYOK 内容质量、原生 pgvector 和 Docker 验收范围见[验收记录](docs/acceptance.md)。
 
-### 数据库迁移
+## 路线图
 
-```bash
-# 升级到当前版本
-.venv/bin/alembic -c backend/alembic.ini upgrade head
-
-# 查看当前版本
-.venv/bin/alembic -c backend/alembic.ini current
-```
-
-需要在可丢弃的开发数据库中验证完整回滚时，可执行：
-
-```bash
-.venv/bin/alembic -c backend/alembic.ini downgrade base
-```
-
-当前初始迁移回滚会删除该阶段的数据表，包含用户、凭证和学习历史；它不是学习状态撤销命令。启动脚本会自动运行升级迁移。
-
-## 十三、项目结构与技术实现
-
-后端使用 Python 3.12+、FastAPI、Pydantic、SQLAlchemy 和 Alembic；部署数据库为 PostgreSQL，本地开发可用 SQLite。CLI 使用 Python 标准库 argparse 和 HTTP 客户端，Web 使用 React／Vite。
-
-```text
-Study-Agent-Framework/
-├── backend/
-│   ├── app/
-│   │   ├── cli/                 # 命令解析、HTTP 客户端、会话、终端交互与展示
-│   │   ├── api/                 # REST API、鉴权和归属校验
-│   │   ├── core/                # 配置、安全与学习流程编排
-│   │   ├── providers/           # 远端模型协议、兼容接口和离线演示
-│   │   ├── knowledge/           # 候选课程与知识依赖图校验
-│   │   ├── learner/             # 基于证据的 rules_v1 状态估计
-│   │   ├── planning/            # 确定性下一步决策
-│   │   ├── teaching/            # 评分逻辑
-│   │   ├── schemas/             # API 输入和模型输出结构
-│   │   └── db/                  # ORM 模型和数据库会话
-│   ├── migrations/              # 迁移、约束及事件防修改触发器
-│   ├── tests/                   # 领域、模型接入、API 和 CLI 测试
-│   ├── requirements.lock        # 运行依赖锁
-│   ├── requirements-dev.lock    # 开发依赖锁
-│   └── pyproject.toml           # Python 项目与 study-agent 命令入口
-├── frontend/                    # 中文 Web 工作台
-├── scripts/
-│   ├── setup.sh                 # 安装初始化，支持 --backend-only
-│   ├── serve.sh                 # 仅启动后端
-│   ├── dev.sh                   # 同时启动后端和 Web 开发服务器
-│   ├── check.sh                 # 完整检查
-│   └── seed_demo.py             # 演示账号与数据
-├── docs/                        # API、架构、安全、CLI 和验收文档
-├── .env.example                 # 后端环境配置模板
-├── Dockerfile
-├── docker-compose.yml
-└── README.md
-```
-
-模型调用经过 Provider Adapter，状态更新由服务端规则控制。框架采用一个主学习流程和确定性服务模块，不依靠多个模型互相对话推进学习。
-
-API 在线文档由 FastAPI 自动生成；保存的接口快照位于 [docs/openapi.json](docs/openapi.json)。已包含教材与持久任务接口；复习调度和通知仍未实现。
-
-## 十四、常见问题
-
-### 找不到 `study-agent` 命令
-
-先确认已执行安装并激活当前项目环境：
-
-```bash
-./scripts/setup.sh --backend-only
-source .venv/bin/activate
-study-agent --help
-```
-
-或者直接使用 `.venv/bin/study-agent`。如果在 CLI 功能加入之前安装过项目，需要重新执行安装脚本注册命令入口。
-
-### 只有 Python 3.13／3.14，安装脚本找不到 `python3.12`
-
-指定本机实际的解释器，例如 `PYTHON_BIN=python3 ./scripts/setup.sh --backend-only`，并确认它满足项目版本要求。
-
-### `connection_failed`：无法连接服务
-
-CLI 不会自动启动后端。检查 `serve.sh` 是否仍在运行、端口是否一致，以及 `--server` 是否误填成了模型服务地址。
-
-### 端口 8000 已被占用
-
-确认是否已经启动了本项目的后端。如果是，直接复用；如果需要独立服务，可以通过 `STUDY_AGENT_PORT` 指定其他端口，并让 CLI 连接同一端口。
-
-### 注册成功，但后续仍提示未登录
-
-本机 HTTP 后端需要 `COOKIE_SECURE=false`，修改后重启并重新登录。远程服务应使用 HTTPS 并保持 Secure Cookie 开启。另请检查是否交替使用了 `localhost` 和 `127.0.0.1`：CLI 会将这些地址视为不同的服务端点。
-
-### `no_active_space`：尚未选择学习空间
-
-```bash
-study-agent space list
-study-agent space use SPACE_ID
-```
-
-注册、切换账号、重新登录或收到 401 后，可能需要重新选择空间。数据库中的历史仍然保留。
-
-### `provider_not_tested`：模型尚未通过检测
-
-运行 `study-agent provider test PROVIDER_ID`。修改模型、Key 或地址后必须重新检测；先前的成功结果不会自动沿用。
-
-### `demo_disabled`：离线演示未启用
-
-用 `ENABLE_FAKE_PROVIDER=true ./scripts/serve.sh` 启动后端。这个开关由后端读取，仅设置在 CLI 进程中没有作用。
-
-### `invalid_api_key`、`provider_timeout` 或 `rate_limited`
-
-分别检查模型 Key 权限、服务响应与配额。连接检测本身也会调用服务商。超时后先查询已有进度，或使用原幂等键重试，不要假定先前提交一定失败。
-
-### `invalid_structured_output` 或课程创建失败
-
-模型没有返回通过结构与业务校验的内容。框架会停止任务，不保存不完整课程。可以检查模型兼容性后重试，或改用另一个已检测的模型配置。
-
-### 自托管内网模型被拒绝
-
-默认会拒绝模型地址指向环回、内网等非公网地址。只有自托管管理员明确允许时，才设置 `ALLOW_PRIVATE_PROVIDER_URLS=true` 并重启后端；这和 CLI 连接本机 StudyAgent 服务是两个独立的地址检查。
-
-### `invalid_local_state`：CLI 状态损坏
-
-程序会保留原状态文件。可以先改用一个新的独立 `--config-dir`，重新登录并选择空间；之后再检查原文件。不要将包含 Cookie 的状态文件粘贴到公开问题反馈中。
-
-### 提示未配置 `CREDENTIAL_ENCRYPTION_KEY`
-
-首次安装且 `.env` 不存在时，setup 会自动生成。如果已经手工创建了一个空模板 `.env`，脚本不会覆盖它，需要自行填写有效 Fernet 密钥。已有数据库使用的主密钥应保持一致，不要通过随意生成新值来尝试修复旧凭证解密问题。
-
-### 为什么读完讲解还没有“已掌握”
-
-阅读只记录经历。掌握状态需要独立作答、不同题目和足够证据；这是设计中的证据规则，不是进度丢失。
-
-### 能否上传教材或直接核实最新考纲
-
-阶段二已支持经过实际检测的 PDF 远端理解、检索和引用；详见[教材使用说明](docs/m2-materials.md)。尚未实现可信联网核验，模型提取摘要与生成内容均需核实，不会自动标记成某年官方考试大纲。
-
-## 十五、后续开发计划与文档
-
-| 阶段 | 状态 | 计划内容 |
+| 阶段 | 当前状态 | 范围 |
 |---|---|---|
-| M1：学习闭环 | 已实现，含 CLI | BYOK、目标、课程、诊断、教学、测评、持久化状态与推荐 |
-| M2：私人教材 | 已实现代码，真实 BYOK／pgvector 验收待执行 | PDF 远端理解、持久任务、教材检索、出处、删除与 CLI／Web |
-| M3：自适应提升 | 尚未实现 | BKT、间隔复习、学习报告与版本化质量评估 |
-| M4：主动陪伴 | 尚未实现 | 明确授权后的后台调度、提醒和成本控制 |
+| **M1 · 学习闭环** | 已实现 | BYOK、目标、诊断、教学、练习、证据、计划与 CLI |
+| **M2 · 私人教材** | 代码已实现，部分部署验收待完成 | 原生 PDF、自动入库、持久任务、检索、引用与删除 |
+| **M3 · 自适应提升** | 未实现 | BKT、间隔复习、学习报告与质量评估 |
+| **M4 · 主动陪伴** | 未实现 | 用户授权后的调度、提醒与预算控制 |
 
-开发按阶段推进；后续功能不会以虚假入口或伪造成功结果提前开放。
+## 文档导航
 
-- [原始开发规格](StudyAgent_Framework_Development_Spec.md)：需求、硬约束、阶段任务与验收标准。
-- [CLI 使用说明](docs/cli.md)：命令行专项说明。
-- [系统架构](docs/architecture.md)：模块边界、数据库与状态重放。
-- [API 说明](docs/api.md)：接口与错误约定。
-- [安全与隐私](docs/security.md)：凭证、隔离、网络访问与部署边界。
-- [开发路线图](docs/development-roadmap.md)：后续阶段规划。
-- [验收记录](docs/acceptance.md)：已有验证证据和未验证范围。
+| 文档 | 内容 |
+|---|---|
+| [中文完整手册](docs/usage.zh-CN.md) | 完整安装、命令参考、环境变量、部署与常见问题 |
+| [CLI 指南](docs/cli.md) | 交互学习、JSON、会话管理与命令详解 |
+| [私人教材指南](docs/m2-materials.md) | 文件能力、处理任务、检索、删除与 pgvector |
+| [架构](docs/architecture.md) · [API](docs/api.md) · [OpenAPI](docs/openapi.json) | 模块、数据模型和接口 |
+| [安全与隐私](docs/security.md) · [验收记录](docs/acceptance.md) | 数据边界、已验证内容与待验证事项 |
+| [开发规格](StudyAgent_Framework_Development_Spec.md) · [路线图](docs/development-roadmap.md) | 需求、阶段与后续规划 |
+
+---
+
+<p align="center"><strong>以目标为起点，以证据为方向。</strong><br /><a href="README.en.md">Read in English →</a></p>
