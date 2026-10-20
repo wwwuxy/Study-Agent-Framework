@@ -1,4 +1,5 @@
 """External paper entities are separate from generated online assessment items."""
+
 from datetime import datetime
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKeyConstraint, Integer, String, UniqueConstraint
@@ -15,23 +16,31 @@ class ExamOwner:
 
 
 def owner_fk():
-    return ForeignKeyConstraint(['user_id', 'space_id'], ['study_spaces.user_id', 'study_spaces.id'])
+    return ForeignKeyConstraint(["user_id", "space_id"], ["study_spaces.user_id", "study_spaces.id"])
 
 
 def diagnostic_fk():
-    return ForeignKeyConstraint(['user_id', 'space_id', 'diagnostic_id'], ['exam_diagnostics.user_id', 'exam_diagnostics.space_id', 'exam_diagnostics.id'])
+    return ForeignKeyConstraint(
+        ["user_id", "space_id", "diagnostic_id"],
+        ["exam_diagnostics.user_id", "exam_diagnostics.space_id", "exam_diagnostics.id"],
+    )
 
 
 class ExamDiagnostic(ExamOwner, Base):
-    __tablename__ = 'exam_diagnostics'
-    __table_args__ = (owner_fk(), UniqueConstraint('user_id', 'space_id', 'id'), UniqueConstraint('space_id', 'request_key'), UniqueConstraint('space_id', 'verified_files_digest'))
+    __tablename__ = "exam_diagnostics"
+    __table_args__ = (
+        owner_fk(),
+        UniqueConstraint("user_id", "space_id", "id"),
+        UniqueConstraint("space_id", "request_key"),
+        UniqueConstraint("space_id", "verified_files_digest"),
+    )
     request_key: Mapped[str] = mapped_column(String(100))
     request_digest: Mapped[str] = mapped_column(String(64))
     verified_files_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
     canonical_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     name: Mapped[str] = mapped_column(String(200))
     exam_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), default='draft')
+    status: Mapped[str] = mapped_column(String(20), default="draft")
     version: Mapped[int] = mapped_column(Integer, default=1)
     generation: Mapped[int] = mapped_column(Integer, default=1)
     imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -39,8 +48,8 @@ class ExamDiagnostic(ExamOwner, Base):
 
 
 class ExamAttachment(ExamOwner, Base):
-    __tablename__ = 'exam_attachments'
-    __table_args__ = (owner_fk(), diagnostic_fk(), UniqueConstraint('diagnostic_id', 'client_id'))
+    __tablename__ = "exam_attachments"
+    __table_args__ = (owner_fk(), diagnostic_fk(), UniqueConstraint("diagnostic_id", "client_id"))
     diagnostic_id: Mapped[str] = mapped_column(String(36), index=True)
     client_id: Mapped[str] = mapped_column(String(80))
     filename: Mapped[str] = mapped_column(String(200))
@@ -52,8 +61,13 @@ class ExamAttachment(ExamOwner, Base):
 
 
 class ExamQuestion(ExamOwner, Base):
-    __tablename__ = 'exam_questions'
-    __table_args__ = (owner_fk(), diagnostic_fk(), UniqueConstraint('diagnostic_id', 'leaf_key'), UniqueConstraint('event_id'))
+    __tablename__ = "exam_questions"
+    __table_args__ = (
+        owner_fk(),
+        diagnostic_fk(),
+        UniqueConstraint("diagnostic_id", "leaf_key"),
+        UniqueConstraint("event_id"),
+    )
     diagnostic_id: Mapped[str] = mapped_column(String(36), index=True)
     leaf_key: Mapped[str] = mapped_column(String(80))
     version: Mapped[int] = mapped_column(Integer, default=1)
@@ -65,15 +79,20 @@ class ExamQuestion(ExamOwner, Base):
 
 
 class ExamJob(ExamOwner, Base):
-    __tablename__ = 'exam_jobs'
-    __table_args__ = (owner_fk(), diagnostic_fk(), UniqueConstraint('diagnostic_id', 'request_key'), UniqueConstraint('active_space_id'))
+    __tablename__ = "exam_jobs"
+    __table_args__ = (
+        owner_fk(),
+        diagnostic_fk(),
+        UniqueConstraint("diagnostic_id", "request_key"),
+        UniqueConstraint("active_space_id"),
+    )
     diagnostic_id: Mapped[str] = mapped_column(String(36), index=True)
     request_key: Mapped[str] = mapped_column(String(100))
-    request_digest: Mapped[str] = mapped_column(String(64), default='')
+    request_digest: Mapped[str] = mapped_column(String(64), default="")
     active_space_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    kind: Mapped[str] = mapped_column(String(20), default='recognize')
-    status: Mapped[str] = mapped_column(String(20), default='queued')
-    stage: Mapped[str] = mapped_column(String(30), default='queued')
+    kind: Mapped[str] = mapped_column(String(20), default="recognize")
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    stage: Mapped[str] = mapped_column(String(30), default="queued")
     generation: Mapped[int] = mapped_column(Integer, default=1)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     lease_token: Mapped[str | None] = mapped_column(String(36), nullable=True)
