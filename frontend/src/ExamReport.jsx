@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import ActionButton from "./ActionButton";
 import { CheckCircle2, Download, FileText, ArrowRight } from "lucide-react";
 
 const labels = {
@@ -14,6 +15,7 @@ const number = (value) =>
   value === null || value === undefined ? "—" : String(value);
 
 function QuestionReview({ question, concepts, onSave, busy }) {
+  const [saving, setSaving] = useState(false);
   const q = question.current;
   const [result, setResult] = useState(q.result),
     [concept, setConcept] = useState(
@@ -28,6 +30,7 @@ function QuestionReview({ question, concepts, onSave, busy }) {
       onSubmit={async (e) => {
         e.preventDefault();
         setError("");
+        setSaving(true);
         try {
           await onSave(question.id, {
             expected_version: question.version,
@@ -38,6 +41,8 @@ function QuestionReview({ question, concepts, onSave, busy }) {
           });
         } catch (err) {
           setError(err.message);
+        } finally {
+          setSaving(false);
         }
       }}
     >
@@ -92,7 +97,13 @@ function QuestionReview({ question, concepts, onSave, busy }) {
           {error}
         </p>
       )}
-      <button disabled={busy}>保存核对结果</button>
+      <ActionButton
+        disabled={busy || saving}
+        loading={saving}
+        loadingText="正在保存核对结果…"
+      >
+        保存核对结果
+      </ActionButton>
     </form>
   );
 }
@@ -131,7 +142,7 @@ export default function ExamReport({
   return (
     <div className="exam-report">
       <section className="card">
-        <span className="eyebrow">EXAM DIAGNOSIS</span>
+        <span className="eyebrow">从试卷表现找到巩固方向</span>
         <h2>{diagnostic.name}</h2>
         <p className="small muted">
           考试日期：{diagnostic.exam_date || "未知，按导入顺序记录"} · 导入：
@@ -153,14 +164,14 @@ export default function ExamReport({
               {report.total_questions ?? 0}
               <small> 题</small>
             </strong>
-            <span>识别叶子题目</span>
+            <span>已识别小题</span>
           </div>
           <div>
             <strong>
               {diagnostic.effective_evidence_count}
               <small> 条</small>
             </strong>
-            <span>有效外部证据</span>
+            <span>有效试卷作答记录</span>
           </div>
         </div>
         <p className="small muted">
@@ -349,7 +360,7 @@ export default function ExamReport({
                 }
               >
                 {item.event_id
-                  ? "已计入有效外部证据"
+                  ? "已计入有效试卷作答记录"
                   : item.exclusion_reason || "未计入有效证据"}
               </p>
               {!item.event_id && (

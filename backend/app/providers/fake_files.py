@@ -16,6 +16,8 @@ class FakeFileAdapter(FakeAdapter):
             **await super().probe_capabilities(),
             "adapter": "fake_files",
             "file_input": True,
+            "image_input": True,
+            "supported_image_mime_types": ["image/png", "image/jpeg"],
             "supported_mime_types": ["application/pdf"],
             "embedding": bool(self.embedding_model),
             "locator_verified": False,
@@ -45,6 +47,45 @@ class FakeFileAdapter(FakeAdapter):
             "locator_verified": False,
         }
 
+    async def analyze_exam(self, inputs, task, *, max_output_tokens):
+        keys = task.get("concept_ids", [])
+        name = task.get("concepts", [{}])[0].get("name", "操作系统知识")
+        return {
+            "title": "离线演示试卷（未读取上传内容）",
+            "coverage_complete": True,
+            "coverage_note": "固定样例，不代表真实识别能力",
+            "questions": [
+                {
+                    "key": "q1",
+                    "number": "1",
+                    "source_id": inputs[0].attachment_id,
+                    "prompt": f"请解释{name}的含义",
+                    "student_answer": "演示：给出完整定义与实例",
+                    "teacher_marks": "✓",
+                    "teacher_mark_clear": True,
+                    "teacher_result": "correct",
+                    "result": "correct",
+                    "recognition_confidence": "high",
+                    "mapping_confidence": "high",
+                    "concept_ids": keys[:1],
+                },
+                {
+                    "key": "q2",
+                    "number": "2",
+                    "source_id": inputs[0].attachment_id,
+                    "prompt": f"举例说明{name}的应用",
+                    "student_answer": "演示：回答不完整",
+                    "teacher_marks": "×",
+                    "teacher_mark_clear": True,
+                    "teacher_result": "incorrect",
+                    "result": "incorrect",
+                    "recognition_confidence": "high",
+                    "mapping_confidence": "high",
+                    "concept_ids": keys[:1],
+                },
+            ],
+        }
+
     async def embed_texts(self, texts):
         if not self.embedding_model:
             raise CapabilityNotSupported()
@@ -52,6 +93,11 @@ class FakeFileAdapter(FakeAdapter):
 
     async def generate_structured(self, messages, schema):
         task = json.loads(messages[-1]["content"])
+        if schema.get("title") == "ExamAdvice":
+            return {
+                "summary": "离线演示：本卷有答对与答错的知识，需要结合原题巩固。未读取上传内容。",
+                "suggestions": [],
+            }
         ids = [s["source_id"] for s in task.get("sources", [])]
         if schema.get("title") == "Rerank":
             return {"source_ids": ids[: task.get("limit", 5)]}

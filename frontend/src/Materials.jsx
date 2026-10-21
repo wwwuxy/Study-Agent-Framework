@@ -1,3 +1,4 @@
+import ActionButton, { LoadingNotice } from "./ActionButton";
 import React, { useEffect, useRef, useState } from "react";
 import { api, key } from "./api";
 
@@ -53,7 +54,8 @@ export default function Materials({
     [mode, setMode] = useState("auto"),
     [results, setResults] = useState(null),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(""),
+    [loading, setLoading] = useState(true);
   const alive = useRef(true),
     revision = useRef(0),
     readVersion = useRef(0),
@@ -80,7 +82,9 @@ export default function Materials({
   }
   useEffect(() => {
     alive.current = true;
-    reload().catch((e) => alive.current && setError(e.message));
+    reload()
+      .catch((e) => alive.current && setError(e.message))
+      .finally(() => alive.current && setLoading(false));
     const timer = setInterval(() => reload().catch(() => {}), 3000);
     return () => {
       alive.current = false;
@@ -111,9 +115,9 @@ export default function Materials({
       current = false;
     };
   }, [root, dataVersion, selected?.id]);
-  async function run(fn) {
+  async function run(fn, action = "request") {
     const ticket = ++revision.current;
-    setBusy(true);
+    setBusy(action);
     setError("");
     const current = () => alive.current && revision.current === ticket;
     try {
@@ -121,7 +125,7 @@ export default function Materials({
     } catch (e) {
       if (current()) setError(e.message);
     } finally {
-      if (current()) setBusy(false);
+      if (current()) setBusy("");
     }
   }
   function resetEvidence() {
@@ -131,9 +135,12 @@ export default function Materials({
   return (
     <>
       <div className="page-title">
-        <span className="eyebrow">YOUR PRIVATE LIBRARY</span>
+        <span className="eyebrow">上传教材 · 检索章节 · 核对出处</span>
         <h1>私人教材</h1>
-        <p>资料由你选择的远端模型理解。上传、索引和阅读不会增加掌握证据。</p>
+        <p>
+          上传自己的 PDF
+          教材，让讲解和练习有资料可循。掌握情况仍根据实际作答评估。
+        </p>
       </div>
       {error && (
         <div className="error" role="alert">
@@ -143,7 +150,7 @@ export default function Materials({
       <section className="card material-upload">
         <h3>上传 PDF</h3>
         <p className="muted">
-          上传后自动保存文件记录；默认由后台完成处理并更新章节、知识点和学习计划，无需手动运行任务。
+          上传后会自动提取章节与知识点，并更新学习计划。处理期间可继续学习，稍后回来查看结果。
         </p>
         <p>
           当前模型：{provider?.name} · 支持格式：
@@ -182,7 +189,7 @@ export default function Materials({
               resetEvidence();
               await reload();
               if (current()) setSelected(data);
-            });
+            }, "upload");
           }}
         >
           <label>
@@ -221,12 +228,14 @@ export default function Materials({
             本次同意将所选文件交给 {provider?.name || "当前服务商"}{" "}
             处理，可能产生费用。原文保存在本机；远端保留遵循该服务商政策。删除会尝试清理，失败时需在服务商控制台核对。
           </label>
-          <button
+          <ActionButton
             className="primary"
-            disabled={!canUpload || !consent || !file || busy}
+            disabled={!canUpload || !consent || !file || !!busy}
+            loading={busy === "upload"}
+            loadingText="正在上传教材并提交索引任务…"
           >
             上传并建立索引
-          </button>
+          </ActionButton>
         </form>
         <label className="checkbox">
           <input
@@ -241,15 +250,23 @@ export default function Materials({
                   body: { allow_general_knowledge: allowed },
                 });
                 if (current()) await onRefresh();
-              });
+              }, "knowledge");
             }}
           />
           教材证据不足时，允许通用模型知识补充（内容未核实）
+          <LoadingNotice active={busy === "knowledge"}>
+            正在保存补充设置…
+          </LoadingNotice>
         </label>
       </section>
       <section className="card">
         <h3>资料与处理任务</h3>
-        {!rows.length && <p className="muted">尚未上传教材。</p>}
+        <LoadingNotice active={loading}>正在读取教材列表…</LoadingNotice>
+        {!loading && !rows.length && (
+          <p className="muted">
+            尚未上传教材。添加一份 PDF，让后续学习可以检索和引用你的资料。
+          </p>
+        )}
         {rows.map((row) => (
           <article className="material-row" key={row.id}>
             <b>{row.filename}</b>
@@ -266,7 +283,8 @@ export default function Materials({
             )}
             <div className="button-row">
               {row.status !== "deleting" && (
-                <button
+                <ActionButton
+                  loadingText="正在读取教材内容…"
                   disabled={busy}
                   onClick={() =>
                     run(async (current) => {
@@ -276,10 +294,11 @@ export default function Materials({
                   }
                 >
                   查看章节与知识点
-                </button>
+                </ActionButton>
               )}
               {row.job?.status === "failed" && (
-                <button
+                <ActionButton
+                  loadingText="正在重试任务…"
                   disabled={busy}
                   onClick={() =>
                     run(async (current) => {
@@ -292,11 +311,12 @@ export default function Materials({
                   }
                 >
                   重试失败任务
-                </button>
+                </ActionButton>
               )}
               {["queued", "running"].includes(row.job?.status) &&
                 row.job?.kind === "index" && (
-                  <button
+                  <ActionButton
+                    loadingText="正在取消处理…"
                     disabled={busy}
                     onClick={() =>
                       run(async (current) => {
@@ -308,11 +328,12 @@ export default function Materials({
                     }
                   >
                     取消处理
-                  </button>
+                  </ActionButton>
                 )}
               {row.status !== "deleting" && (
                 <>
-                  <button
+                  <ActionButton
+                    loadingText="正在提交索引任务…"
                     disabled={busy || !canUpload || !consent}
                     title="请先勾选本次远端处理授权"
                     onClick={() =>
@@ -335,8 +356,9 @@ export default function Materials({
                     }
                   >
                     使用当前模型重新索引
-                  </button>
-                  <button
+                  </ActionButton>
+                  <ActionButton
+                    loadingText="正在删除教材…"
                     className="danger"
                     disabled={busy}
                     onClick={() =>
@@ -353,7 +375,7 @@ export default function Materials({
                     }
                   >
                     删除原文与索引
-                  </button>
+                  </ActionButton>
                 </>
               )}
             </div>
@@ -390,7 +412,7 @@ export default function Materials({
                 body: { query, mode },
               });
               if (current()) setResults(result);
-            });
+            }, "search");
           }}
         >
           <label>
@@ -415,7 +437,13 @@ export default function Materials({
               </option>
             </select>
           </label>
-          <button disabled={busy}>搜索教材证据</button>
+          <ActionButton
+            disabled={!!busy}
+            loading={busy === "search"}
+            loadingText="正在检索教材并筛选相关内容…"
+          >
+            搜索教材证据
+          </ActionButton>
         </form>
         {results && (
           <>
@@ -425,7 +453,11 @@ export default function Materials({
                 ? "远端向量 + 模型精排"
                 : "关键词 + 模型精排（非向量）"}
             </p>
-            {!results.results.length && <p>未找到相关教材证据。</p>}
+            {!results.results.length && (
+              <p>
+                未找到相关内容。试试更具体的知识点或关键词，或补充相关教材。
+              </p>
+            )}
             <Citations sources={results.results} root={root} />
           </>
         )}

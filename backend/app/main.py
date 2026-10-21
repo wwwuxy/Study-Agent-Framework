@@ -12,11 +12,25 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from app.api import auth, learning, materials, providers, spaces
+from app.activity.worker import worker as activity_worker
+from app.api import (
+    activity,
+    adaptive,
+    analyses,
+    auth,
+    chat,
+    exams,
+    learning,
+    materials,
+    providers,
+    reviews,
+    spaces,
+)
 from app.api.deps import RateLimiter
 from app.core.security import CredentialVault, password_hash
 from app.core.settings import Settings
 from app.db.session import build_database
+from app.exam_diagnostics.worker import worker as exam_worker
 from app.jobs.materials import worker
 from app.providers.base import ProviderError
 
@@ -25,14 +39,30 @@ logger = logging.getLogger("uvicorn.error.study_agent")
 
 def create_app(settings=None, adapter_factory=None):
     settings = settings or Settings()
+    from app.learner.parameters import load_parameter_bundle
+
+    bundle = load_parameter_bundle(settings.learner_parameters_path)
     engine, sessions = build_database(settings.database_url)
+    sessions.configure(info={"algorithm_parameters": bundle})
 
     @asynccontextmanager
     async def lifespan(app):
         task = asyncio.create_task(worker(app)) if settings.material_worker_enabled else None
+        app.state.activity_worker_task = (
+            asyncio.create_task(activity_worker(app)) if settings.m4_worker_enabled else None
+        )
+        exam_task = asyncio.create_task(exam_worker(app)) if settings.exam_worker_enabled else None
         try:
             yield
         finally:
+            if exam_task:
+                exam_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await exam_task
+            if app.state.activity_worker_task:
+                app.state.activity_worker_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await app.state.activity_worker_task
             if task:
                 task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -43,7 +73,7 @@ def create_app(settings=None, adapter_factory=None):
         title="StudyAgent Framework",
         version="0.1.0",
         lifespan=lifespan,
-        description="M2 BYOK 学习闭环与私人教材；远端理解内容仍需核实。",
+        description="围绕学习目标，提供诊断、教学、练习、间隔复习、学习报告与 AI 分析，持续记录个人学习进度。",
     )
     app.state.settings = settings
     app.state.engine, app.state.session_factory = engine, sessions
@@ -57,6 +87,13 @@ def create_app(settings=None, adapter_factory=None):
     async def request_context(request: Request, call_next):
         request_id, start = secrets.token_hex(12), time.monotonic()
         request.state.request_id = request_id
+        if (
+            request.method not in {"GET", "HEAD", "OPTIONS"}
+            and (Path(settings.material_storage_dir) / ".maintenance-lock").exists()
+        ):
+            return JSONResponse(
+                {"error": {"code": "maintenance", "message": "学习数据维护中，请稍后重试"}}, status_code=503
+            )
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
             origin = request.headers.get("origin")
             allowed = {str(request.base_url).rstrip("/"), settings.frontend_origin.rstrip("/")}
@@ -112,17 +149,29 @@ def create_app(settings=None, adapter_factory=None):
     async def health():
         with sessions() as db:
             db.execute(text("SELECT 1"))
-        return {"status": "ok", "phase": "M2"}
+        return {"status": "ok", "phase": "M4"}
 
     @app.get("/api/v1/config", tags=["system"])
     async def public_config():
         return {
             "demo_enabled": settings.enable_fake_provider,
-            "phase": "M2",
+            "phase": "M4",
             "material_max_bytes": settings.material_max_bytes,
         }
 
-    for router in (auth.router, providers.router, spaces.router, learning.router, materials.router):
+    for router in (
+        auth.router,
+        exams.router,
+        providers.router,
+        spaces.router,
+        learning.router,
+        materials.router,
+        reviews.router,
+        adaptive.router,
+        chat.router,
+        activity.router,
+        analyses.router,
+    ):
         app.include_router(router, prefix="/api/v1")
     dist = Path(settings.frontend_dist)
     if (dist / "assets").exists():
@@ -130,6 +179,8 @@ def create_app(settings=None, adapter_factory=None):
     if (dist / "index.html").exists():
 
         @app.get("/", include_in_schema=False)
+        @app.get("/login", include_in_schema=False)
+        @app.get("/register", include_in_schema=False)
         async def web():
             return FileResponse(dist / "index.html")
 

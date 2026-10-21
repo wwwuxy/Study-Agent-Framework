@@ -1,9 +1,22 @@
+from datetime import UTC, datetime
+
 import pytest
 from pydantic import ValidationError
 
-from app.learner.estimator import estimate
-from app.planning.policy import choose_action
+from app.learner.bkt import estimate_bkt
+from app.learner.evidence import observations_for
+from app.learner.parameters import BKTParameters
+from app.planning.policy import choose_action as policy_action
 from app.schemas.domain import Curriculum, QuestionBatch
+
+
+def estimate(concept_id, events):
+    return estimate_bkt(observations_for(concept_id, events), BKTParameters())
+
+
+def choose_action(concepts, states, diagnostic_count, minutes):
+    events = [{"type": "diagnostic_submitted", "assessment_item_id": str(i)} for i in range(diagnostic_count)]
+    return policy_action(concepts, states, {}, events, minutes, now=datetime(2026, 1, 1, tzinfo=UTC))
 
 
 def concept(key, prerequisites=None):

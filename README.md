@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/readme-stack.svg" alt="Python 3.12+ · FastAPI · React 19 · CLI + Web · BYOK · M1 + M2" width="780" />
+  <img src="docs/assets/readme-stack.svg" alt="Python 3.12+ · FastAPI · React 19 · CLI + Web · BYOK · M1 + M2 + M3 + M4" width="780" />
 </p>
 
 <p align="center">
@@ -42,11 +42,33 @@
 | 📈 | **用证据记录进度** | 根据实际作答估计知识状态，记录辅助程度，解释下一步推荐 |
 | 💻 | **终端与网页协作** | 交互答题、JSON 输出、持久会话、进度恢复与独立学习空间 |
 
-> **当前状态**：M1 学习闭环与 M2 私人教材代码已实现。真实 BYOK 教材样例、pgvector 扩展和 Docker 部署仍需在目标环境验收；M3／M4 尚未实现。[查看验收记录](docs/acceptance.md)
+> **当前状态**：M1／M2／M3 功能已实现。所有空间统一启用原生 pyBKT 与 py-fsrs，支持到期复习、7／30 天报告与离线校准。真实教育效果、真实 BYOK 教材样例、pgvector 扩展和 Docker 部署仍需在目标环境验收。M4 已增加每日任务、到期复习与计划建议、自然周报、手动 AI 分析及独立登录／注册页面；不同账号数据隔离，后台不自动调用 LLM。[查看验收记录](docs/acceptance.md)
 
 <a id="preview"></a>
 
 ## 界面预览
+
+### 模型、空间与后台统一管理
+
+「模型与设置」整合模型连接、学习空间和后台运行；「学习概要」整合近期统计与自然周报，减少侧栏重复入口。
+
+![统一后的模型与设置页面](docs/assets/settings-tabs.jpg)
+
+### 今日任务与自然周报
+
+后台使用已有学习数据整理安排，不调用模型；需要解释时手动点击 AI 分析。不同账号的数据相互隔离。
+
+![M4 每日任务与真实证据完成状态](docs/assets/m4-daily.jpg)
+
+<details>
+<summary>查看自然周报与移动端</summary>
+
+![自然周报](docs/assets/m4-weekly.jpg)
+<img src="docs/assets/m4-daily-mobile.jpg" alt="390px 手机端每日任务" width="390" />
+
+</details>
+
+[主动学习使用说明与配置](docs/m4-active-learning.md) · [账号注册页面截图](docs/assets/m4-register.jpg)
 
 ### 教材检索：从答案回到出处
 
@@ -54,13 +76,21 @@
 
 ![私人教材的关键词检索、章节摘要与来源引用](docs/assets/m2-library.png)
 
-### 知识地图：上传之后，自动更新
+### 知识脑图：沿着分支探索知识
 
-上传任务完成后，新知识点会进入数据库与知识地图。**新增内容保持待诊断，上传和阅读不会直接增加掌握度。**
+知识地图现在使用可交互脑图：学习目标连接各知识点，实线展示主分支，虚线保留其他前置关联。点击节点查看学习目标、前置知识与有效证据；支持拖动、缩放、居中适配和下拉定位，手机端可触摸浏览。
 
-![上传后自动加入知识地图的新概念，状态仍为待诊断](docs/assets/auto-upload-database.png)
+上传任务完成后，新知识点会自动进入数据库与脑图。**新增内容保持待诊断，上传和阅读不会直接增加掌握度。**
+
+![知识脑图、前置关系和知识点详情](docs/assets/knowledge-mind-map.jpg)
 
 <sub>截图来自本机真实界面的独立演示账号，使用明确标注的固定样例；不代表真实服务商已理解教材。当前 Web 界面以中文为主，英文 README 不表示界面已完成英文翻译。</sub>
+
+### 学习概要：回顾真实证据
+
+![7／30 天报告与必启双算法状态](docs/assets/m3-report.png)
+
+<sub>隔离演示账号的固定样例；默认参数未针对真实用户校准。</sub>
 
 ## 学习流程
 
@@ -68,7 +98,7 @@
 
 - **没有教材**：由用户模型生成候选课程与教学内容，保留待核实标记。
 - **上传教材**：先检索用户资料；证据不足时默认停止新教学，通用知识补充需单独授权。
-- **形成进度**：作答保存为学习证据，再由规则更新状态与计划；阅读记录与掌握证据分别处理。
+- **形成进度**：作答保存为学习证据，再由 pyBKT 更新知识状态、py-fsrs 更新记忆与计划；阅读记录与掌握证据分别处理。
 
 <a id="quick-start"></a>
 
@@ -233,12 +263,54 @@ study-agent material remove MATERIAL_ID
 
 </details>
 
+## 自适应学习：知识掌握与记忆分别跟踪
+
+![BKT、FSRS 与统一学习流程](docs/assets/m3-adaptive.svg)
+
+每个空间都启用 **pyBKT 1.4.3** 和 **py-fsrs 6.3.2（FSRS-6）**。BKT 从可靠作答估计技能状态；FSRS 保存稳定性、难度、回忆预测和精确到期时间。没有逐空间开关或旧规则回退。
+
+```bash
+study-agent algorithms
+study-agent review list
+study-agent review start --concept CONCEPT_ID --request-id review-001
+# 非交互提交：使用 start 返回的复习 ID 和题目 ID
+study-agent review submit REVIEW_ID --item ITEM_ID --answer 'A' --rating good --request-id answer-001
+study-agent report --days 7
+study-agent --json report --days 30
+```
+
+Web 新增「复习」和「学习概要」，与 CLI 共用同一题目、事件、卡片和计划。独立答对默认 Good，可选 Hard／Easy；答错或使用提示只能 Again，服务端会校验。阅读和低置信评分不制造掌握或回忆证据；新概念显示待诊断，未作答卡片不会被计为逾期。
+
+默认参数尚未针对真实用户校准。离线工具已实际跑通 pyBKT 原生 EM 和 FSRS 官方优化器；合成数据结果仅验证工程流程，不证明学习效果提升。详见[阶段三说明](docs/m3-adaptive-learning.md)与[评测记录](docs/m3-evaluation.md)。
+
+## 学习需求变了？直接和助手聊
+
+Web 左侧选择 **学习对话**，或在概览／课堂点击“调整学习计划”。例如：
+
+> 每天改成 15 分钟，先学进程调度，例子尽量贴近面试。
+
+明确需求会**自动生效**，并展示时间、重点、路线等前后差异；信息不足时会先澄清。可以调整目标、截止日期、讲解偏好，或补充同空间的新知识。阶段路线由当前模型生成，下一步继续结合 BKT／FSRS 与先修条件安排。
+
+![聊天修改学习需求、展示计划变化与暂存课堂](docs/assets/planning-chat.jpg)
+
+聊天、需求版本与学习路线保存到数据库；CLI 的 `plan`、`next`、`learn` 会读取同一更新。改变内容时可暂存旧课堂，之后继续原题；已有作答和记忆记录继续保留。新增知识保持待诊断，聊天自述不会直接变成已掌握。
+
+<sub>截图使用隔离演示账号和固定样例。聊天调用当前 BYOK 模型可能计费；首版在结构校验后完整发布回复与计划。演示不代表通用自然语言理解质量。</sub>
+
+[使用与故障恢复说明](docs/planning-chat.md)
+
+## 上传已批改试卷，诊断薄弱知识
+
+Web 侧栏新增「成绩诊断」：上传已批改 PDF 或多页 JPG／PNG，由当前用户模型识别逐题对错、得分与批注，生成诊断报告，并用可靠证据更新知识状态和下一步。模糊、部分得分及综合题归因不明会单独标记；历史试卷不会重置复习时间。支持历史报告、核对及失败恢复。[使用与模型要求](docs/exam-diagnostics.md)
+
 ## 日常命令速查
 
 | 任务 | 命令 |
 |---|---|
 | 继续上次学习 | `study-agent learn` |
 | 查看知识状态与证据 | `study-agent progress` |
+| 到期复习与报告 | `study-agent review list` / `study-agent report --days 7` |
+| 查询双算法版本 | `study-agent algorithms` |
 | 查看计划与下一步 | `study-agent plan` / `study-agent next` |
 | 切换学习空间 | `study-agent space list` → `study-agent space use SPACE_ID` |
 | 查看学习事件与调用用量 | `study-agent events` / `study-agent runs` |
@@ -264,7 +336,7 @@ study-agent material remove MATERIAL_ID
 - **原文与索引分别保存**：原文在本机私有目录；元数据、章节和学习记录在数据库。备份时同时保存数据库、资料目录与对应加密主密钥。
 - **用户模型处理资料**：目标、答案与授权文件会发给用户选择的远端服务，模型调用可能产生费用。
 - **权限按用户和空间隔离**：CLI 本地状态只保存会话和空间选择，API Key 在后端加密保存。
-- **内容仍需核实**：模型生成的课程、摘要与评分不等于权威核验；当前规则估计没有做教育测量校准。
+- **内容仍需核实**：模型生成的课程、摘要与评分不等于权威核验；当前算法参数没有做真实用户教育测量校准。
 
 ## 开发与验证
 
@@ -285,14 +357,15 @@ TEST_DATABASE_URL='postgresql+psycopg://user:password@localhost/study_agent_test
 |---|---|---|
 | **M1 · 学习闭环** | 已实现 | BYOK、目标、诊断、教学、练习、证据、计划与 CLI |
 | **M2 · 私人教材** | 代码已实现，部分部署验收待完成 | 原生 PDF、自动入库、持久任务、检索、引用与删除 |
-| **M3 · 自适应提升** | 未实现 | BKT、间隔复习、学习报告与质量评估 |
-| **M4 · 主动陪伴** | 未实现 | 用户授权后的调度、提醒与预算控制 |
+| **M3 · 自适应提升** | 已实现，真实教育效果待验证 | 原生 BKT＋FSRS、到期复习、报告、版本化离线评测 |
+| **M4 · 主动陪伴** | 已实现，工程验证见验收记录 | 每日任务、到期复习、偏离建议、自然周报、手动分析配额与账号隔离 |
 
 ## 文档导航
 
 | 文档 | 内容 |
 |---|---|
 | [中文完整手册](docs/usage.zh-CN.md) | 完整安装、命令参考、环境变量、部署与常见问题 |
+| [M4 主动学习](docs/m4-active-learning.md) | 每日任务、到期复习与计划建议、周报、分析配额和账号隔离 |
 | [CLI 指南](docs/cli.md) | 交互学习、JSON、会话管理与命令详解 |
 | [私人教材指南](docs/m2-materials.md) | 文件能力、处理任务、检索、删除与 pgvector |
 | [架构](docs/architecture.md) · [API](docs/api.md) · [OpenAPI](docs/openapi.json) | 模块、数据模型和接口 |

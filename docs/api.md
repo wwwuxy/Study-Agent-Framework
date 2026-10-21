@@ -13,6 +13,9 @@
 | GET /providers/{id}/capabilities | 检测结果，未验证功能均关闭 |
 | POST /study-spaces · GET /study-spaces | 原子初始化候选课程 / 空间列表 |
 | GET /study-spaces/{id} · PATCH /study-spaces/{id} | 查看目标 / 切换已检测模型，不删除历史 |
+| GET /study-spaces?include_archived=true | 管理本账号保留的空间，包括旧版已移除空间；不返回永久删除标记 |
+| DELETE /study-spaces/{id} | 永久删除学习记录、课程、答题、教材原文与索引；取消索引，异步清理远端文件；不可恢复 |
+| GET /study-spaces/deletion-jobs | 本账号已删除空间的远端清理状态；失败任务通过 /jobs/{id}/retry 重试 |
 | GET /study-spaces/{id}/concepts · /profile | 课程 DAG / 当前证据状态 |
 | POST /study-spaces/{id}/profile/rebuild | 从不可变事件重算 rules_v1 和计划 |
 | POST /study-spaces/{id}/diagnostics | 生成并持久化 5–10 题；重复调用返回原题及作答状态 |
@@ -32,7 +35,7 @@
 
 模型错误代码包括 `invalid_api_key`、`provider_timeout`、`rate_limited`、`provider_unavailable`、`invalid_structured_output`、`invalid_question_mapping`、`duplicate_question`、`capability_not_supported`。有限重试失败后由用户再次发起，历史数据不清空。
 
-review 与 notifications 端点未注册，属于 M3 / M4。
+复习与报告已在 M3 注册；notifications 属于未实现的 M4。
 
 
 ## M2 资料与任务
@@ -58,3 +61,78 @@ ProviderCreate 新增 provider_type=`openai_files` / `fake_files` 和可选 embe
 任务状态为 queued/running/succeeded/failed/cancelled。202 仅表示已接受，处理结果查 job；常见错误包括 file_consent_required、file_too_large（413）、unsupported_file_type、unsafe_file、invalid_idempotency_key、provider_config_changed、insufficient_material_evidence、invalid_citation、remote_cleanup_required。失败任务可能返回 HTTP 200 查询成功且 status=failed，调用方须检查状态字段。
 
 来源返回 source_id、document_id、study_space_id、filename、heading、summary、locator、locator_verified 和 is_demo。题目及课堂新增 source_ids/citations/grounding，不改变参考答案保护；被删除资料的引用在读取时过滤。当前定位页码一律 null、未核实。详细行为见 [M2 文档](m2-materials.md)。
+
+删除学习空间会清空目标及模型关联，并按外键顺序移除学习内容、不可变事件、调用记录和教材分节（含 pgvector 镜像）。保留不含目标、答案、教材内容的最小空间、资料和任务标记，用于幂等拒绝重建、登记在途上传返回的远端句柄及清理重试；不提供恢复接口。普通学习事件仍禁止 SQL 更新/删除，仅当所属空间进入永久删除状态时允许清除事件。在途上传结束和远端文件清理完成前，禁止删除所需模型凭证。远端删除不代表能绕过供应商的保留政策。
+
+## M3 自适应学习
+
+路径以下均位于 `/api/v1/study-spaces/{space_id}`，需要本人登录；不同用户或已删除空间返回 404。
+
+| 方法／路径 | 输入／行为 |
+|---|---|
+| GET /algorithms | 双算法固定启用、实际库与参数版本、证据版本与校准状态 |
+| GET /q-matrix | 知识点、题目映射及用途；不含答案或 rubric |
+| GET /reviews | due／upcoming／unassessed 三组卡片、状态、due 与 as_of |
+| POST /reviews/start | concept_id、idempotency_key；创建或恢复活动复习，201 |
+| GET /reviews/{review_id} | 本空间会话、课堂、新题及已提交结果 |
+| POST /reviews/{review_id}/submit | 与 attempts 相同请求与结果；题目必须属于该复习 |
+| GET /report?days=7 | 支持 7／30；事件重放、分布、错误、完成／保持率、下一步 |
+
+普通 `/attempts` 与复习提交增加可选 `memory_rating=again|hard|good|easy`。使用服务端提示或答错只能 Again；独立正确可选 Hard／Good／Easy。结果 `memory` 为 null（无可靠单概念证据）或实际 rating／reason／due／state。两个入口复用同一幂等摘要与事件唯一日志，重复不二次调度。课堂响应有 review_id、题目 purpose=review；阅读完成与全题提交共同形成任务完成事件。
+
+版本变更而派生状态未重建返回 409 `state_rebuild_required`；不一致评分返回 422 `invalid_memory_rating`；尚未到期返回 `review_not_due`。维护标记存在时写请求返回 503 `maintenance`。离线参数发布和一次性清空不是公开 HTTP 端点，见 [维护说明](m3-adaptive-learning.md)。
+
+
+## 学习计划 Chat
+
+以下路径均位于 `/api/v1/study-spaces/{space_id}`，使用现有登录 Cookie，并检查空间归属。新接口的静态响应模型见 OpenAPI。
+
+| 方法／路径 | 行为 |
+|---|---|
+| GET /chat/turns?before=CURSOR&limit=30 | 稳定分页，limit为1–100，返回items与next_cursor；含未完成回合 |
+| POST /chat/turns | content（1–4000字符）、idempotency_key、retry=false；明确需求自动应用 |
+| GET /chat/turns/{turn_id} | 权威处理状态、回复、差异和计划快照 |
+| GET /plan/revisions?before=CURSOR&limit=30 | 只读需求修订、前后快照和变更原因 |
+| GET /lessons/paused | 暂存课堂，原题与作答继续保留 |
+| POST /lessons/{lesson_id}/resume | IdempotentRequest；恢复原课堂，活动冲突409 |
+
+回合status为processing／completed／failed／conflict／cancelled；outcome区分applied／not_changed／clarification_needed等权威结果。新回合完成201，已有结果200，处理中202。每空间一个活动回合，租约180秒；重试使用相同idempotency_key／content并设置retry=true。公开结果返回该幂等标识，以支持刷新后重试；不返回模型凭证和提示词。
+
+GET plan增加intent_version、intent和stages；version为policy_v3。策略版本与需求版本分别管理。LLM路线与偏好持久保存，动态next_action在作答／查询时结合最新BKT、FSRS与先修关系计算。
+
+可能错误包括chat_busy、chat_interrupted、chat_context_changed、invalid_plan_change、invalid_cursor和原有unauthenticated／not_found／maintenance。失败结果不代表计划已生效，客户端应读取status／outcome／error_message，而非仅根据HTTP200判断应用成功。
+
+## M4 主动学习 API
+
+新接口均有明确响应模型，归属由会话推导，不接受客户端user_id；跨账号404，未登录401。写接口使用 `idempotency_key`。空间前缀 `S=/study-spaces/{space_id}`。
+
+| 方法／路径 | 行为 |
+|---|---|
+| GET S/daily-plans/today | 只读今日计划；未生成返回plan=null与原因 |
+| POST S/daily-plans/refresh | 用现有数据协调今天，无模型调用 |
+| GET S/tasks | 列表，支持status过滤，最多100项 |
+| POST S/tasks/{id}/start | 恢复同一课堂／诊断，返回TaskStartResponse及关联题ID |
+| POST S/tasks/{id}/complete | 核对真实阅读／答题条件，不伪造完成 |
+| POST S/tasks/{id}/skip · /postpone | 仅修改待办；改期日期由服务端计算 |
+| GET S/suggestions | 读取偏离建议 |
+| POST S/suggestions/{id}/accept · /skip | 重验来源版本后处理 |
+| GET /inbox · /inbox/unread-count | 本账号分页消息／总未读数 |
+| POST /inbox/{id}/read | 幂等标记已读 |
+| GET S/weekly-summaries | 持久自然周报分页 |
+| GET S/weekly-summaries/current | 当前周即时预览，无写入和模型调用 |
+| GET S/weekly-summaries/{id} | 读取持久快照 |
+| POST S/weekly-summaries/refresh | 生成／读取上一完整自然周，无模型调用 |
+| GET /activity-jobs | 本账号周期作业分页，不返回内部租约 |
+| POST /activity-jobs/{id}/retry | 仅死信作业可手动重试，非付费任务 |
+| POST S/analyses | 明确申请AI分析，201结果／202处理中 |
+| GET S/analyses · /analyses | 空间／账号的分析分页 |
+| GET S/analyses/{id} | 状态／结果／保留及实际Token／retry_allowed |
+| GET /analysis-usage | 账号UTC日跨空间共享的M4分析配额；不含其他模型任务费用 |
+
+分页接口支持 `cursor`／`limit`（默认30，最大100），返回 `{items,next_cursor}`。分析请求包含 `source_kind=daily_plan|weekly_summary`、`source_id`、`idempotency_key`、可选 `retry_of`。同键内容不同409，来源不属于当前空间404，达到分析配额429。未知模型消耗保守占用，不按零退款；失败只有用户新发起尝试才重试。独立SPA页面 `/login`、`/register` 支持直达刷新，未知 API 路径仍404。
+
+## 已批改试卷诊断
+
+前缀 `/api/v1/study-spaces/{space_id}/exam-diagnostics`，全部接口要求账号与空间归属。GET `/capabilities` 返回当前已验证格式和限制；POST 根路径创建附件清单草稿；PUT `/{id}/attachments/{attachment_id}` 流式上传原文件；POST `/{id}/start` 携带本次传输授权并返回 202。GET 根路径支持 before／limit 分页，GET `/{id}` 读取状态与报告，GET `/{id}/attachments/{attachment_id}/download` 下载原卷。POST `/{id}/retry` 恢复失败阶段或重试远端清理，POST `/{id}/cancel` 取消未发布任务；PATCH `/{id}/questions/{question_id}` 携带 expected_version 和幂等键核对未入库题；DELETE `/{id}/draft` 仅丢弃未开始草稿。
+
+相同键不同内容 409，越权 404，格式／分值／授权错误 422；文件超限 413。实际 schema 见 OpenAPI。报告含独立的有效证据数和 before／after，在线学习报告另含 external_imports，导入不计为在线答题或复习。详见[使用说明](exam-diagnostics.md)。

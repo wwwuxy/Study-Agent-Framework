@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, Request, Response
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.api.deps import current_user, get_db, own_provider
 from app.core.orchestrator import call_model
 from app.core.security import validate_base_url
-from app.db.models import AgentRun, MaterialAsset, ProviderConfig, StudySpace
+from app.db.models import AgentRun, MaterialAsset, MaterialJob, ProviderConfig, StudySpace
+from app.knowledge.materials import inflight_indexes
 from app.providers.base import ProviderError
 from app.schemas.api import ProviderCreate, ProviderUpdate
 
@@ -87,7 +88,52 @@ async def update_provider(
 
 @router.delete("/{provider_id}", status_code=204)
 async def remove_provider(provider_id: str, db=Depends(get_db), user=Depends(current_user)):
-    config = own_provider(db, user.id, provider_id)
+    config = db.scalar(
+        select(ProviderConfig)
+        .where(ProviderConfig.id == provider_id, ProviderConfig.user_id == user.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if not config:
+        raise ProviderError("not_found", "模型配置不存在", 404)
+    from app.db.models import AnalysisRun, ChatTurn, utcnow
+    from app.exam_diagnostics.models import ExamJob
+
+    for exam_job in db.scalars(select(ExamJob).where(ExamJob.provider_id == provider_id)):
+        if (
+            exam_job.status in {"queued", "running"}
+            or exam_job.data.get("remote_files")
+            or exam_job.data.get("uploading")
+        ):
+            raise ProviderError("provider_in_use", "试卷处理或远端文件清理尚未结束，暂不能删除模型", 409)
+
+    if db.scalar(
+        select(ChatTurn.id).where(
+            ChatTurn.provider_id == config.id,
+            ChatTurn.status == "processing",
+            ChatTurn.lease_until > utcnow(),
+        )
+    ):
+        raise ProviderError("provider_in_use", "仍有学习对话正在处理，请稍后删除模型配置", 409)
+    if db.scalar(
+        select(AnalysisRun.id).where(
+            AnalysisRun.provider_id == config.id,
+            AnalysisRun.user_id == user.id,
+            AnalysisRun.status == "processing",
+            AnalysisRun.lease_until > utcnow(),
+        )
+    ):
+        raise ProviderError("provider_in_use", "仍有 AI 分析正在处理，请稍后删除模型配置", 409)
+    origin = MaterialJob.data["_upload_provider_id"].as_string()
+    if db.scalar(
+        inflight_indexes()
+        .join(MaterialAsset, MaterialJob.asset_id == MaterialAsset.id)
+        .where(
+            MaterialJob.user_id == user.id,
+            or_(origin == config.id, (origin.is_(None)) & (MaterialAsset.provider_id == config.id)),
+        )
+    ):
+        raise ProviderError("provider_in_use", "仍有教材上传正在结束，请待远端清理完成后再删除凭证", 409)
     if db.scalar(select(StudySpace.id).where(StudySpace.provider_id == config.id)):
         raise ProviderError("provider_in_use", "请先将关联学习空间切换到其他已检测的模型，再删除凭证", 409)
     if db.scalar(

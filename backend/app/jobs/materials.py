@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from pydantic import ValidationError
 from sqlalchemy import delete, or_, select, update
+from starlette.concurrency import run_in_threadpool
 
 from app.core.orchestrator import get_adapter, rebuild_states, save_plan
 from app.db.models import (
@@ -18,11 +19,12 @@ from app.db.models import (
     MaterialSection,
     ProviderConfig,
     StudySpace,
+    User,
     as_utc,
     new_id,
     utcnow,
 )
-from app.knowledge.materials import fingerprint, new_job
+from app.knowledge.materials import fingerprint, inflight_indexes, new_job
 from app.knowledge.storage import MaterialStorage
 from app.knowledge.vectors import store_vectors
 from app.providers.base import ProviderError
@@ -49,18 +51,28 @@ async def remote(request, db, config, space_id, step, operation):
         error = ProviderError("invalid_structured_output", "远端资料内容未通过结构校验")
     except ProviderError as exc:
         error = exc
-    db.add(
-        AgentRun(
-            user_id=config.user_id,
-            provider_id=config.id,
-            space_id=space_id,
-            model=config.embedding_model if step == "material_embedding" else config.chat_model,
-            step=step,
-            elapsed_ms=int((time.monotonic() - start) * 1000),
-            usage=adapter.usage,
-            error_code=error.code if error else None,
-        )
+    # Serialize audit publication with permanent deletion; never recreate learning
+    # records after the user has erased a space.
+    db.scalar(select(User).where(User.id == config.user_id).with_for_update())
+    retained = db.scalar(
+        select(StudySpace)
+        .where(StudySpace.id == space_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
+    if retained and retained.status != "deleted":
+        db.add(
+            AgentRun(
+                user_id=config.user_id,
+                provider_id=config.id,
+                space_id=space_id,
+                model=config.embedding_model if step == "material_embedding" else config.chat_model,
+                step=step,
+                elapsed_ms=int((time.monotonic() - start) * 1000),
+                usage=adapter.usage,
+                error_code=error.code if error else None,
+            )
+        )
     db.commit()
     if error:
         raise error
@@ -76,7 +88,11 @@ def guard(db, job_id, token):
         or job.data.get("_lease") != token
         or (
             job.kind == "index"
-            and (asset.generation != job.generation or asset.status in {"deleting", "deleted", "cancelled"})
+            and (
+                asset.generation != job.generation
+                or asset.status in {"deleting", "deleted", "cancelled"}
+                or db.get(StudySpace, asset.space_id).status in {"archived", "deleted"}
+            )
         )
     ):
         raise ProviderError("job_cancelled", "任务已取消或被新版本取代", 409)
@@ -97,8 +113,11 @@ def guard(db, job_id, token):
     return job, asset
 
 
-def config_for(db, asset):
-    config = db.get(ProviderConfig, asset.provider_id)
+def config_for(db, asset, lock=False):
+    query = select(ProviderConfig).where(ProviderConfig.id == asset.provider_id)
+    if lock:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    config = db.scalar(query)
     if not config or fingerprint(config) != asset.provider_fingerprint:
         raise ProviderError(
             "provider_config_changed", "原模型凭证或模型已变更，请恢复配置清理远端文件，或重新索引", 409
@@ -109,12 +128,21 @@ def config_for(db, asset):
 
 
 def checkpoint(db, job, stage, progress, **values):
+    token = job.data.get("_lease")
+    job = db.scalar(
+        select(MaterialJob)
+        .where(MaterialJob.id == job.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if job.status != "running" or job.data.get("_lease") != token:
+        raise ProviderError("job_cancelled", "任务在保存进度前已取消或替换", 409)
     job.data = {**job.data, **values}
     job.stage, job.progress = stage, progress
     db.commit()
 
 
-def sync_concepts(db, asset, sections):
+async def sync_concepts(db, asset, sections):
     # Sources enrich knowledge; only answer events may establish mastery.
     existing = db.scalars(select(KnowledgeConcept).where(KnowledgeConcept.space_id == asset.space_id)).all()
     by_name = {c.data["name"]: c for c in existing}
@@ -144,7 +172,7 @@ def sync_concepts(db, asset, sections):
             concept.data = data
     db.flush()
     space = db.get(StudySpace, asset.space_id)
-    rebuild_states(db, space)
+    await rebuild_states(db, space)
     save_plan(db, space)
 
 
@@ -166,16 +194,22 @@ async def execute_index(request, db, job_id, token):
     if not config.capabilities.get("file_input"):
         raise ProviderError("capability_not_supported", "当前配置没有已验证的 PDF 文件能力", 422)
     if not job.data.get("remote_ref"):
-        data = MaterialStorage(settings.material_storage_dir).read(asset.user_id, asset.space_id, asset.id)
+        # Pair with remove_provider's lock so the origin is recorded before a
+        # credential can be removed, even if the space changes providers.
+        config = config_for(db, asset, lock=True)
         origin_fingerprint = fingerprint(config)
-        ref = await remote(
-            request,
-            db,
-            config,
-            asset.space_id,
-            "material_upload",
-            lambda adapter: adapter.upload_file(data, asset.filename),
-        )
+        checkpoint(db, job, "upload", 0, _upload_provider_id=config.id)
+        with MaterialStorage(settings.material_storage_dir).open(
+            asset.user_id, asset.space_id, asset.id
+        ) as file:
+            ref = await remote(
+                request,
+                db,
+                config,
+                asset.space_id,
+                "material_upload",
+                lambda adapter: adapter.upload_file(file, asset.filename),
+            )
         # Persist handles even if cancellation happened during the network call.
         asset = db.scalar(
             select(MaterialAsset)
@@ -287,7 +321,16 @@ async def execute_index(request, db, job_id, token):
         vectors = job.data["vectors"]
     job, asset = guard(db, job_id, token)
     config_for(db, asset)
-    # Lock the asset first (same order as cancellation/deletion), then atomically
+    db.scalar(select(User).where(User.id == asset.user_id).with_for_update())
+    space = db.scalar(
+        select(StudySpace)
+        .where(StudySpace.id == asset.space_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if space.status in {"archived", "deleted"}:
+        raise ProviderError("job_cancelled", "学习空间已删除或移除", 409)
+    # Lock space, asset, then job (same order as permanent deletion), and atomically
     # verify both generation and lease before publishing. A second process cannot resurrect it.
     changed = db.execute(
         update(MaterialAsset)
@@ -326,7 +369,7 @@ async def execute_index(request, db, job_id, token):
         )
         db.add(row)
         sections.append(row)
-    sync_concepts(db, asset, sections)
+    await sync_concepts(db, asset, sections)
     store_vectors(db, sections, settings.pgvector_enabled)
     asset.status = "ready"
     job.status, job.stage, job.progress = "succeeded", "complete", 100
@@ -356,6 +399,16 @@ async def execute_cleanup(request, db, job_id, token):
         asset.remote_files = [h for h in asset.remote_files if h != handle]
         db.commit()
     job, asset = guard(db, job_id, token)
+    uploads = db.scalars(inflight_indexes().where(MaterialJob.asset_id == asset.id)).all()
+    if asset.status == "deleting" and not asset.remote_files and uploads:
+        # Persist a delayed continuation. Even if the cancelled uploader crashes,
+        # lease expiry will make this cleanup runnable again after restart.
+        job.status, job.stage, job.progress = "running", "waiting_upload", 95
+        job.lease_until = max(as_utc(upload.lease_until) for upload in uploads)
+        job.attempts = max(0, job.attempts - 1)
+        job.data = {k: v for k, v in job.data.items() if k in {"parent_job", "request_digest"}}
+        db.commit()
+        return
     if asset.status == "deleting" and not asset.remote_files:
         asset.status = "deleted"
     asset.warning = (
@@ -369,6 +422,16 @@ async def execute_cleanup(request, db, job_id, token):
 
 
 async def run_job(app, job_id):
+    # A job owns its Session and event loop in one worker thread. Synchronous
+    # database lock waits must never prevent an ASGI answer from committing.
+    await run_in_threadpool(_run_job_in_thread, app, job_id)
+
+
+def _run_job_in_thread(app, job_id):
+    asyncio.run(_run_job(app, job_id))
+
+
+async def _run_job(app, job_id):
     token = new_id()
     with app.state.session_factory() as db:
         # Atomic claim also works on SQLite; expired leases allow crash recovery.
@@ -459,11 +522,31 @@ async def run_job(app, job_id):
                     "资料任务失败，可查看服务端日志后重试",
                 )
                 db.commit()
+        finally:
+            db.rollback()
+            job = db.get(MaterialJob, job_id)
+            if job and job.kind == "index" and job.status == "cancelled":
+                job.lease_until = None
+                job.data = {}
+                db.flush()
+                asset = db.get(MaterialAsset, job.asset_id)
+                if (
+                    db.get(StudySpace, asset.space_id).status == "deleted"
+                    and not asset.remote_files
+                    and not db.scalar(inflight_indexes().where(MaterialJob.asset_id == asset.id))
+                ):
+                    asset.status, asset.warning = "deleted", None
+                db.commit()
 
 
 async def worker(app):
     while True:
         try:
+            from pathlib import Path
+
+            if (Path(app.state.settings.material_storage_dir) / ".maintenance-lock").exists():
+                await asyncio.sleep(1)
+                continue
             with app.state.session_factory() as db:
                 jobs = db.scalars(
                     select(MaterialJob.id)

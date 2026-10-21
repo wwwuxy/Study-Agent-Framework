@@ -7,6 +7,27 @@ const files = [
   { name: "two.png", type: "image/png", size: 4 },
 ];
 
+test("deleting a diagnostic prevents a late poll from restoring it", async () => {
+  let finishPoll;
+  const visible = [];
+  const controller = createExamDiagnosticState({
+    api: async (path, options = {}) => {
+      if (options.method === "DELETE") {
+        assert.equal(path, "/s/exam-diagnostics/e");
+        return null;
+      }
+      return new Promise((resolve) => {
+        finishPoll = resolve;
+      });
+    },
+  });
+  const pending = controller.poll("/s", "e", (value) => visible.push(value));
+  await controller.remove("/s", { id: "e" }, () => visible.push("deleted"));
+  finishPoll({ id: "e", status: "running" });
+  await pending;
+  assert.deepEqual(visible, ["deleted"]);
+});
+
 test("upload starts only after every attachment is saved", async () => {
   const calls = [];
   const controller = createExamDiagnosticState({

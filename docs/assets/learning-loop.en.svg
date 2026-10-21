@@ -24,7 +24,7 @@
 <text x="778" y="408" font-size="16" fill="#697568">Record answers and assistance</text><rect x="402" y="309" width="316" height="132" rx="14" fill="#ffffff" stroke="#dde3d6"/>
 <text x="424" y="339" font-size="13" font-weight="650" letter-spacing="2" fill="#8e9b81">05</text>
 <text x="424" y="374" font-size="23" font-weight="600" fill="#254a37">Update learning evidence</text>
-<text x="424" y="408" font-size="16" fill="#697568">Estimate knowledge state by rules</text><rect x="48" y="309" width="316" height="132" rx="14" fill="#ffffff" stroke="#dde3d6"/>
+<text x="424" y="408" font-size="16" fill="#697568">BKT knowledge · FSRS memory</text><rect x="48" y="309" width="316" height="132" rx="14" fill="#ffffff" stroke="#dde3d6"/>
 <text x="70" y="339" font-size="13" font-weight="650" letter-spacing="2" fill="#8e9b81">06</text>
 <text x="70" y="374" font-size="23" font-weight="600" fill="#254a37">Choose the next step</text>
 <text x="70" y="408" font-size="16" fill="#697568">Save progress and continue later</text><rect x="48" y="480" width="1024" height="84" rx="14" fill="#e9eee0"/>

@@ -2,16 +2,28 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 
 from app.api.deps import current_user, get_db, own_provider, own_space
-from app.core.orchestrator import call_model, concept_data, digest, profile, rebuild_states, save_plan
+from app.core.orchestrator import (
+    call_model,
+    concept_data,
+    digest,
+    profile,
+    rebuild_states,
+    save_plan,
+)
 from app.db.models import (
     AgentRun,
     ConceptPrerequisite,
     KnowledgeConcept,
     LearningEvent,
-    LearningPlan,
+    MaterialAsset,
+    MaterialJob,
     StudySpace,
+    as_utc,
     new_id,
+    utcnow,
 )
+from app.knowledge.materials import public_job
+from app.knowledge.storage import MaterialStorage
 from app.providers.base import ProviderError
 from app.schemas.api import SpaceCreate, SpaceUpdate
 from app.schemas.domain import Curriculum
@@ -35,13 +47,41 @@ def public_space(space):
 
 
 @router.get("")
-async def list_spaces(db=Depends(get_db), user=Depends(current_user)):
-    return [
-        public_space(s)
-        for s in db.scalars(
-            select(StudySpace).where(StudySpace.user_id == user.id).order_by(StudySpace.created_at)
-        ).all()
-    ]
+async def list_spaces(include_archived: bool = False, db=Depends(get_db), user=Depends(current_user)):
+    query = select(StudySpace).where(StudySpace.user_id == user.id, StudySpace.status != "deleted")
+    if not include_archived:
+        query = query.where(StudySpace.status != "archived")
+    return [public_space(s) for s in db.scalars(query.order_by(StudySpace.created_at)).all()]
+
+
+@router.get("/deletion-jobs")
+async def deletion_jobs(db=Depends(get_db), user=Depends(current_user)):
+    """Only cleanup metadata, never the deleted goal or original filename."""
+    jobs = db.scalars(
+        select(MaterialJob)
+        .join(StudySpace, MaterialJob.space_id == StudySpace.id)
+        .where(MaterialJob.user_id == user.id, StudySpace.status == "deleted")
+        .order_by(MaterialJob.created_at)
+    ).all()
+    retried = {job.data.get("parent_job") for job in jobs}
+    result = []
+    for job in jobs:
+        asset = db.get(MaterialAsset, job.asset_id)
+        if (
+            job.kind == "cleanup"
+            and job.status in {"queued", "running", "failed"}
+            and job.id not in retried
+            and (asset.status != "deleted" or asset.remote_files)
+        ):
+            result.append(public_job(job))
+        elif (
+            job.kind == "index"
+            and job.status == "cancelled"
+            and job.lease_until
+            and as_utc(job.lease_until) > utcnow()
+        ):
+            result.append({**public_job(job), "status": "running", "stage": "waiting_upload"})
+    return result
 
 
 @router.post("", status_code=201)
@@ -51,8 +91,12 @@ async def create_space(body: SpaceCreate, request: Request, db=Depends(get_db), 
         select(StudySpace).where(StudySpace.user_id == user.id, StudySpace.init_key == body.idempotency_key)
     )
     if existing:
+        if existing.status == "deleted":
+            raise ProviderError("space_deleted", "学习空间已永久删除，请使用新的请求标识", 409)
         if existing.request_digest != fingerprint:
             raise ProviderError("idempotency_conflict", "同一初始化键对应了不同配置", 409)
+        if existing.status == "archived":
+            raise ProviderError("space_archived", "学习空间已移除，请使用新的请求标识", 409)
         return public_space(existing)
     config = own_provider(db, user.id, body.provider_id, require_tested=True)
     curriculum, run_id = await call_model(
@@ -92,9 +136,24 @@ async def create_space(body: SpaceCreate, request: Request, db=Depends(get_db), 
             db.add(
                 ConceptPrerequisite(space_id=space.id, concept_key=concept.key, prerequisite_key=prerequisite)
             )
-    rebuild_states(db, space)
+    await rebuild_states(db, space)
     save_plan(db, space)
     return public_space(space)
+
+
+@router.delete("/{space_id}")
+async def remove_space(space_id: str, request: Request, db=Depends(get_db), user=Depends(current_user)):
+    space = db.scalar(
+        select(StudySpace)
+        .where(StudySpace.id == space_id, StudySpace.user_id == user.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if not space:
+        raise ProviderError("not_found", "学习空间不存在", 404)
+    from app.services.space_deletion import erase_space_content
+
+    return erase_space_content(db, space, MaterialStorage(request.app.state.settings.material_storage_dir))
 
 
 @router.get("/{space_id}")
@@ -127,7 +186,7 @@ async def get_profile(space_id: str, db=Depends(get_db), user=Depends(current_us
 @router.post("/{space_id}/profile/rebuild")
 async def rebuild_profile(space_id: str, db=Depends(get_db), user=Depends(current_user)):
     space = own_space(db, user.id, space_id)
-    rebuild_states(db, space)
+    await rebuild_states(db, space)
     save_plan(db, space)
     return profile(db, space)
 
@@ -135,7 +194,9 @@ async def rebuild_profile(space_id: str, db=Depends(get_db), user=Depends(curren
 @router.get("/{space_id}/plan")
 async def get_plan(space_id: str, db=Depends(get_db), user=Depends(current_user)):
     space = own_space(db, user.id, space_id)
-    return db.get(LearningPlan, space.id).data
+    from app.planning.intent import plan_view
+
+    return plan_view(db, space)
 
 
 @router.get("/{space_id}/events")

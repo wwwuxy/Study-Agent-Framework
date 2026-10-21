@@ -1,3 +1,4 @@
+import ActionButton, { LoadingNotice } from "./ActionButton";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -9,6 +10,8 @@ import {
   CircleHelp,
   Cpu,
   FlaskConical,
+  FileText,
+  FolderOpen,
   Layers,
   LoaderCircle,
   LogOut,
@@ -19,11 +22,32 @@ import {
   Sparkles,
   Target,
   History,
+  MessageCircle,
+  CalendarDays,
+  Activity,
 } from "lucide-react";
-import { api, key } from "./api";
+import { api, key, advanceSessionScope, onSessionExpired } from "./api";
+import AuthPage from "./AuthPage";
+import { authRoute, navigateAuth } from "./authRouting";
 import { createLatestRequest } from "./latestRequest";
 import "./styles.css";
 import Materials, { Citations } from "./Materials";
+import ProviderForm from "./ProviderForm";
+import {
+  imageProbeErrors,
+  providerCapabilityLabels,
+} from "./providerCapabilities";
+import SpaceManager from "./SpaceManager";
+import Reviews from "./Reviews";
+import LearningReport from "./LearningReport";
+import AlgorithmStatus from "./AlgorithmStatus";
+import PlanningChat from "./PlanningChat";
+import ExamDiagnostics from "./ExamDiagnostics";
+import KnowledgeMindMap from "./KnowledgeMindMap";
+import DailyTasks from "./DailyTasks";
+import WeeklySummaries from "./WeeklySummaries";
+import ActivityRuns from "./ActivityRuns";
+import PageTabs from "./PageTabs";
 
 const labels = { unknown: "待诊断", learning: "学习中", mastered: "已掌握" };
 const actions = {
@@ -31,24 +55,51 @@ const actions = {
   LEARN_CONCEPT: "学习新知",
   REMEDIATE: "修复误区",
   PRACTICE: "定向练习",
-  ASSESS: "迁移测评",
+  ASSESS: "迁移与阶段测评",
+  REVIEW: "间隔复习",
+};
+const runLabels = {
+  probe: "检测模型连接",
+  curriculum: "生成课程",
+  diagnostic: "生成诊断题",
+  lesson: "生成课堂内容",
+  grade: "评阅作答",
+  hint: "生成学习提示",
+  material_upload: "上传教材",
+  material_outline: "提取教材目录",
+  material_section: "整理教材章节",
+  material_embedding: "建立教材检索索引",
+  material_rerank: "筛选教材内容",
+  material_delete: "清理远端教材",
+  exam_diagnostic: "识别与诊断试卷",
+  planning_chat: "学习计划对话",
+  m4_analysis: "AI 学习分析",
 };
 const eventLabels = {
   diagnostic_submitted: "完成诊断",
+  exam_question_imported: "导入试卷作答",
+  exam_diagnostic_deleted: "删除诊断并撤回导入证据",
   assessment_submitted: "提交练习",
   lesson_viewed: "阅读讲解",
   hint_requested: "请求提示",
   plan_adjusted: "调整学习计划",
+  requirements_changed: "通过对话调整学习需求",
+  review_submitted: "完成回忆练习",
+  learning_task_started: "开始学习任务",
+  learning_task_completed: "完成课堂与练习",
 };
 
 function App() {
+  const [settingsSection, setSettingsSection] = useState("models"),
+    [reportSection, setReportSection] = useState("overview");
+  const [route, setRoute] = useState(() => authRoute(window.location.pathname));
   const [user, setUser] = useState(null),
     [ready, setReady] = useState(false);
   const [config, setConfig] = useState({}),
     [spaces, setSpaces] = useState([]),
     [providers, setProviders] = useState([]);
   const [sid, setSid] = useState(""),
-    [page, setPage] = useState("overview"),
+    [page, setPage] = useState("report"),
     [modal, setModal] = useState("");
   const [detail, setDetail] = useState(null),
     [diagnosis, setDiagnosis] = useState(null),
@@ -56,17 +107,32 @@ function App() {
   const [busy, setBusy] = useState(""),
     [error, setError] = useState("");
   const spaceReads = useRef(createLatestRequest()),
-    listReads = useRef(createLatestRequest());
+    listReads = useRef(createLatestRequest()),
+    lessonStart = useRef(null);
   const activeSpace = useRef(sid),
     sessionScope = useRef(createLatestRequest()),
     operation = useRef(0);
   activeSpace.current = sid;
+  function openOverview() {
+    setReportSection("overview");
+    setPage("report");
+  }
+  function openReviews() {
+    setReportSection("reviews");
+    setPage("report");
+  }
   function selectSpace(id) {
-    if (activeSpace.current !== id) spaceReads.current.invalidate();
+    if (activeSpace.current !== id) {
+      spaceReads.current.invalidate();
+    }
     activeSpace.current = id;
     setSid(id);
   }
   function invalidateSession() {
+    setSettingsSection("models");
+    advanceSessionScope();
+    setBusy("");
+    setError("");
     sessionScope.current.invalidate();
     spaceReads.current.invalidate();
     listReads.current.invalidate();
@@ -77,7 +143,7 @@ function App() {
     setDiagnosis(null);
     setLesson(null);
     setModal("");
-    setPage("overview");
+    openOverview();
   }
   const space = spaces.find((s) => s.id === sid);
   async function refreshLists() {
@@ -107,13 +173,35 @@ function App() {
           api(root + "/runs"),
           api(root + "/plan"),
           api(root + "/lessons/current"),
+          api(root + "/reviews"),
         ]),
-      ([concepts, profile, action, events, runs, plan, current]) => {
+      ([concepts, profile, action, events, runs, plan, current, reviews]) => {
         if (id !== activeSpace.current) return;
-        setDetail({ concepts, profile, action, events, runs, plan });
+        setDetail({ concepts, profile, action, events, runs, plan, reviews });
         setLesson(current);
       },
     );
+  }
+  async function removeSpace(id) {
+    const isCurrent = sessionScope.current.checkpoint();
+    setError("");
+    await api("/study-spaces/" + id, { method: "DELETE" });
+    if (!isCurrent()) return false;
+    listReads.current.invalidate();
+    setSpaces((items) => items.filter((item) => item.id !== id));
+    if (activeSpace.current === id) {
+      selectSpace(spaces.find((item) => item.id !== id)?.id || "");
+      setDetail(null);
+      setLesson(null);
+      setDiagnosis(null);
+    }
+    try {
+      await refreshLists();
+    } catch (err) {
+      if (isCurrent())
+        setError("空间已永久删除，但列表刷新失败：" + err.message);
+    }
+    return isCurrent();
   }
   async function work(message, fn) {
     const ticket = ++operation.current,
@@ -128,6 +216,27 @@ function App() {
       if (ticket === operation.current) setBusy("");
     }
   }
+  useEffect(() => {
+    const changed = () => setRoute(authRoute(window.location.pathname));
+    window.addEventListener("popstate", changed);
+    return () => window.removeEventListener("popstate", changed);
+  }, []);
+  useEffect(
+    () =>
+      onSessionExpired(() => {
+        setUser(null);
+        invalidateSession();
+        navigateAuth("login", { replace: true });
+      }),
+    [],
+  );
+  useEffect(() => {
+    if (!ready) return;
+    if (user && route !== "workspace")
+      navigateAuth("workspace", { replace: true });
+    if (!user && route === "workspace")
+      navigateAuth("login", { replace: true });
+  }, [ready, user, route]);
   useEffect(() => {
     api("/config")
       .then(setConfig)
@@ -146,10 +255,19 @@ function App() {
     setLesson(null);
     if (sid) work("读取学习进度", () => refreshSpace(sid));
   }, [sid]);
+  useEffect(() => {
+    if (page === "classroom" && !diagnosis && lesson?.id)
+      lessonStart.current?.scrollIntoView({
+        block: "start",
+        behavior: "smooth",
+      });
+  }, [lesson?.id, page, diagnosis]);
   const root = "/study-spaces/" + sid;
   const stats = detail?.profile.states || [];
   const mastered = stats.filter((s) => s.status === "mastered").length;
   const currentProvider = providers.find((p) => p.id === space?.provider_id);
+  const pendingExercises =
+    lesson?.exercises.filter((item) => !lesson.attempts?.[item.id]).length || 0;
   async function beginDiagnosis() {
     const isCurrent = sessionScope.current.checkpoint(),
       id = sid;
@@ -159,6 +277,23 @@ function App() {
       setDiagnosis(result);
       setPage("classroom");
     });
+  }
+  async function openActivityTask(receipt) {
+    const current = sessionScope.current.checkpoint(),
+      id = sid;
+    if (receipt.execution_kind === "diagnostic") {
+      const result = await api(root + "/diagnostics", { method: "POST" });
+      if (!current() || id !== activeSpace.current) return;
+      setDiagnosis(result);
+    } else setDiagnosis(null);
+    await refreshSpace(id);
+    if (current() && id === activeSpace.current) setPage("classroom");
+  }
+  async function openReview(review) {
+    setLesson(review.lesson);
+    setDiagnosis(null);
+    setPage("classroom");
+    await refreshSpace();
   }
   async function beginLesson() {
     const isCurrent = sessionScope.current.checkpoint(),
@@ -174,12 +309,43 @@ function App() {
       setPage("classroom");
     });
   }
-  async function answered(item, answer, requestKey) {
+  async function nextLesson() {
+    if (!lesson || busy) return;
+    if (pendingExercises) {
+      setError(
+        `还有 ${pendingExercises} 道练习未提交，请先完成作答，再开始下一次学习。`,
+      );
+      return;
+    }
+    const isCurrent = sessionScope.current.checkpoint(),
+      id = sid;
+    if (!lesson.completed) {
+      const saved = await work("记录本次阅读", async () => {
+        await api(root + "/lessons/" + lesson.id + "/complete", {
+          method: "POST",
+          body: { idempotency_key: key() },
+        });
+        if (!isCurrent() || id !== activeSpace.current) return false;
+        setLesson((current) =>
+          current?.id === lesson.id ? { ...current, completed: true } : current,
+        );
+        return true;
+      });
+      if (!saved) return;
+    }
+    if (isCurrent() && id === activeSpace.current) await beginLesson();
+  }
+  async function answered(item, answer, requestKey, memoryRating = null) {
     const isCurrent = sessionScope.current.checkpoint(),
       id = sid;
     const result = await api(root + "/attempts", {
       method: "POST",
-      body: { item_id: item.id, answer, idempotency_key: requestKey },
+      body: {
+        item_id: item.id,
+        answer,
+        idempotency_key: requestKey,
+        memory_rating: memoryRating,
+      },
     });
     if (!isCurrent() || id !== activeSpace.current) return result;
     if (diagnosis)
@@ -198,7 +364,9 @@ function App() {
     );
   if (!user)
     return (
-      <Auth
+      <AuthPage
+        mode={route === "register" ? "register" : "login"}
+        onModeChange={navigateAuth}
         onLogin={async (u) => {
           invalidateSession();
           setUser(u);
@@ -216,7 +384,7 @@ function App() {
           href="#"
           onClick={(e) => {
             e.preventDefault();
-            setPage("overview");
+            openOverview();
           }}
         >
           <span className="brand-icon">
@@ -224,36 +392,50 @@ function App() {
           </span>{" "}
           StudyAgent<span className="brand-dot">®</span>
         </a>
-        <div className="workspace-label">PERSONAL LEARNING SPACE</div>
-        <select
-          className="space-select"
-          aria-label="选择学习空间"
-          value={sid}
-          onChange={(e) => {
-            selectSpace(e.target.value);
-            setPage("overview");
-          }}
-        >
-          <option value="" disabled>
-            创建你的学习空间
-          </option>
-          {spaces.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.goal}
-            </option>
-          ))}
-        </select>
-        <button className="new-space" onClick={() => setModal("space")}>
-          <Plus size={15} /> 新建学习空间
-        </button>
+        <div className="workspace-label">你的个人学习空间</div>
+        {spaces.length ? (
+          <>
+            <select
+              className="space-select"
+              aria-label="选择学习空间"
+              value={sid}
+              onChange={(e) => {
+                selectSpace(e.target.value);
+                openOverview();
+              }}
+            >
+              {spaces.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.goal}
+                </option>
+              ))}
+            </select>
+            <LoadingNotice active={busy === "读取学习进度"}>
+              正在读取此空间的学习进度…
+            </LoadingNotice>
+            <button className="new-space" onClick={() => setModal("space")}>
+              <Plus size={15} /> 新建学习空间
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="space-select space-create"
+            onClick={() => setModal("space")}
+          >
+            <Plus size={15} /> 创建你的学习空间
+          </button>
+        )}
         <div className="nav-label">你的学习</div>
         <nav>
           {[
-            ["overview", BookOpen, "学习概览"],
+            ["today", CalendarDays, "今日任务"],
+            ["chat", MessageCircle, "学习对话"],
             ["classroom", Sparkles, "专属课堂"],
             ["knowledge", Network, "知识地图"],
             ["materials", Layers, "私人教材"],
-            ["history", History, "学习记录"],
+            ["report", Target, "学习概要"],
+            ["exams", FileText, "成绩诊断"],
             ["settings", Settings2, "模型与设置"],
           ].map(([id, Icon, title]) => (
             <button
@@ -273,7 +455,7 @@ function App() {
             <span>
               你的模型，你的学习数据
               <br />
-              <small>BYOK · 独立空间 · 证据可追溯</small>
+              <small>自选模型 · 独立空间 · 进度留存</small>
             </span>
           </div>
           <div className="user">
@@ -282,7 +464,8 @@ function App() {
               {user.username}
               <small>个人学习者</small>
             </span>
-            <button
+            <ActionButton
+              loadingText="正在退出…"
               title="退出登录"
               onClick={() =>
                 work("退出登录", async (isCurrent) => {
@@ -296,7 +479,7 @@ function App() {
               }
             >
               <LogOut size={16} />
-            </button>
+            </ActionButton>
           </div>
         </div>
       </aside>
@@ -307,18 +490,20 @@ function App() {
             <b>
               {
                 {
-                  overview: "学习概览",
+                  today: "今日任务",
+                  chat: "学习对话",
                   classroom: "专属课堂",
                   knowledge: "知识地图",
                   materials: "私人教材",
-                  history: "学习记录",
+                  exams: "成绩诊断",
+                  report: "学习概要",
                   settings: "模型与设置",
                 }[page]
               }
             </b>
           </span>
           <span className="phase">
-            <span /> M2 · 私人教材
+            <span /> 围绕目标，持续进步
           </span>
         </header>
         <div className="main-content">
@@ -328,141 +513,191 @@ function App() {
               <button onClick={() => setError("")}>×</button>
             </div>
           )}
-          {busy && (
-            <div className="busy" role="status">
-              <LoaderCircle size={16} className="spin" />
-              {busy}… 模型任务可能需要一点时间
-            </div>
-          )}
           {page === "settings" ? (
             <>
               <PageTitle
-                eyebrow="CONNECTED INTELLIGENCE"
+                eyebrow="模型连接 · 空间管理 · 运行记录"
                 title="模型与设置"
-                subtitle="连接你信任的模型，学习进度由框架持续保存。"
+                subtitle="统一管理模型连接、学习空间与后台运行。"
               />
-              <div className="section-head">
-                <h3>我的模型连接</h3>
-                <button
-                  className="primary"
-                  onClick={() => setModal("provider")}
-                >
-                  <Plus size={16} /> 添加模型
-                </button>
-              </div>
-              <div className="provider-grid">
-                {providers.map((p) => (
-                  <article className="card provider-card" key={p.id}>
-                    <Cpu />
-                    <span className={"tag " + (p.tested ? "green" : "")}>
-                      {p.tested ? "已检测" : "待检测"}
-                    </span>
-                    <h3>{p.name}</h3>
-                    <p>{p.chat_model}</p>
-                    <code>{p.base_url}</code>
-                    <div className="cap-list">
-                      <span>聊天 {p.capabilities.chat ? "✓" : "待验证"}</span>
-                      <span>
-                        文件理解：
-                        {p.capabilities.file_input
-                          ? p.capabilities.supported_mime_types?.join("、")
-                          : "未验证或不支持"}
-                      </span>
-                      <span>
-                        远端 Embedding：
-                        {p.capabilities.embedding ? "已验证" : "未验证或不支持"}
-                      </span>
-                      {p.capabilities.is_demo && (
-                        <span>固定演示 · 未读取文件内容</span>
-                      )}
-                      {p.capabilities.file_error && (
-                        <span>文件检测：{p.capabilities.file_error}</span>
-                      )}
-                      {p.capabilities.retention_warning && (
-                        <span>{p.capabilities.retention_warning}</span>
-                      )}
-                    </div>
-                    <div className="button-row">
+              <PageTabs
+                label="设置分类"
+                value={settingsSection}
+                onChange={setSettingsSection}
+                tabs={[
+                  { id: "models", label: "模型连接", icon: Cpu },
+                  { id: "spaces", label: "学习空间", icon: FolderOpen },
+                  { id: "activity", label: "后台运行", icon: Activity },
+                ]}
+              >
+                {settingsSection === "spaces" ? (
+                  <SpaceManager
+                    key={user.id}
+                    embedded
+                    currentSpaceId={sid}
+                    providers={providers}
+                    onOpen={(id) => {
+                      selectSpace(id);
+                      openOverview();
+                    }}
+                    onCreate={() => setModal("space")}
+                    onRemove={removeSpace}
+                  />
+                ) : settingsSection === "activity" ? (
+                  <ActivityRuns key={user.id} embedded />
+                ) : (
+                  <>
+                    <div className="section-head">
+                      <h3>我的模型连接</h3>
                       <button
-                        onClick={() =>
-                          work("检测模型能力", async (isCurrent) => {
-                            await api("/providers/" + p.id + "/test", {
-                              method: "POST",
-                            });
-                            if (!isCurrent()) return;
-                            await refreshLists();
-                          })
-                        }
-                        disabled={!!busy}
+                        className="primary"
+                        onClick={() => setModal("provider")}
                       >
-                        测试连接
-                      </button>
-                      <button onClick={() => setModal(p)}>编辑凭证</button>
-                      <button
-                        className="danger"
-                        onClick={() =>
-                          work("删除模型配置", async (isCurrent) => {
-                            await api("/providers/" + p.id, {
-                              method: "DELETE",
-                            });
-                            if (!isCurrent()) return;
-                            await refreshLists();
-                          })
-                        }
-                      >
-                        删除
+                        <Plus size={16} /> 添加模型
                       </button>
                     </div>
-                  </article>
-                ))}
-              </div>
-              {space && (
-                <section className="card model-switch">
-                  <h3>当前学习空间的教学模型</h3>
-                  <p className="small muted">
-                    切换模型后，知识状态、学习计划和历史证据继续保留。
-                  </p>
-                  <select
-                    aria-label="切换教学模型"
-                    value={space.provider_id}
-                    disabled={!!busy}
-                    onChange={(e) =>
-                      work("切换教学模型", async (isCurrent) => {
-                        await api(root, {
-                          method: "PATCH",
-                          body: { provider_id: e.target.value },
-                        });
-                        if (!isCurrent()) return;
-                        await refreshLists();
-                        if (!isCurrent()) return;
-                        await refreshSpace();
-                      })
-                    }
-                  >
-                    {providers
-                      .filter((p) => p.tested || p.id === space.provider_id)
-                      .map((p) => (
-                        <option key={p.id} value={p.id} disabled={!p.tested}>
-                          {p.name} · {p.chat_model}
-                          {!p.tested ? "（需要重新检测）" : ""}
-                        </option>
+                    <div className="provider-grid">
+                      {providers.map((p) => (
+                        <article className="card provider-card" key={p.id}>
+                          <Cpu />
+                          <span className={"tag " + (p.tested ? "green" : "")}>
+                            {p.tested ? "已检测" : "待检测"}
+                          </span>
+                          <h3>{p.name}</h3>
+                          <p>{p.chat_model}</p>
+                          <code>{p.base_url}</code>
+                          <div className="cap-list">
+                            <span>
+                              聊天 {p.capabilities.chat ? "✓" : "待验证"}
+                            </span>
+                            <span>
+                              图像理解：{providerCapabilityLabels(p).image}
+                            </span>
+                            <span>
+                              PDF 文件理解：{providerCapabilityLabels(p).pdf}
+                            </span>
+                            <span>
+                              远端 Embedding：
+                              {p.capabilities.embedding
+                                ? "已验证"
+                                : "未验证或不支持"}
+                            </span>
+                            {p.capabilities.is_demo && (
+                              <span>固定演示 · 未读取文件内容</span>
+                            )}
+                            {p.capabilities.file_error && (
+                              <span>文件检测：{p.capabilities.file_error}</span>
+                            )}
+                            {Object.entries(
+                              p.capabilities.image_errors || {},
+                            ).map(([mime, code]) => (
+                              <span key={mime}>
+                                {mime === "image/png" ? "PNG" : "JPEG"} 检测：
+                                {imageProbeErrors[code] || code}
+                              </span>
+                            ))}
+                            {p.capabilities.retention_warning && (
+                              <span>{p.capabilities.retention_warning}</span>
+                            )}
+                          </div>
+                          <div className="button-row">
+                            <ActionButton
+                              loadingText="正在测试连接…"
+                              onClick={() =>
+                                work("检测模型能力", async (isCurrent) => {
+                                  await api("/providers/" + p.id + "/test", {
+                                    method: "POST",
+                                  });
+                                  if (!isCurrent()) return;
+                                  await refreshLists();
+                                })
+                              }
+                              disabled={!!busy}
+                            >
+                              测试连接
+                            </ActionButton>
+                            <button onClick={() => setModal(p)}>
+                              编辑凭证
+                            </button>
+                            <ActionButton
+                              loadingText="正在删除模型…"
+                              className="danger"
+                              onClick={() =>
+                                work("删除模型配置", async (isCurrent) => {
+                                  await api("/providers/" + p.id, {
+                                    method: "DELETE",
+                                  });
+                                  if (!isCurrent()) return;
+                                  await refreshLists();
+                                })
+                              }
+                            >
+                              删除
+                            </ActionButton>
+                          </div>
+                        </article>
                       ))}
-                  </select>
-                  {currentProvider?.provider_type === "fake" && (
-                    <p className="hint">
-                      当前为离线演示，使用固定操作系统样例。
+                    </div>
+                    {space && (
+                      <section className="card model-switch">
+                        <h3>当前学习空间的教学模型</h3>
+                        <p className="small muted">
+                          切换模型后，知识状态、学习计划和历史证据继续保留。
+                        </p>
+                        <select
+                          aria-label="切换教学模型"
+                          value={space.provider_id}
+                          disabled={!!busy}
+                          onChange={(e) =>
+                            work("切换教学模型", async (isCurrent) => {
+                              await api(root, {
+                                method: "PATCH",
+                                body: { provider_id: e.target.value },
+                              });
+                              if (!isCurrent()) return;
+                              await refreshLists();
+                              if (!isCurrent()) return;
+                              await refreshSpace();
+                            })
+                          }
+                        >
+                          {providers
+                            .filter(
+                              (p) => p.tested || p.id === space.provider_id,
+                            )
+                            .map((p) => (
+                              <option
+                                key={p.id}
+                                value={p.id}
+                                disabled={!p.tested}
+                              >
+                                {p.name} · {p.chat_model}
+                                {!p.tested ? "（需要重新检测）" : ""}
+                              </option>
+                            ))}
+                        </select>
+                        <LoadingNotice active={busy === "切换教学模型"}>
+                          正在切换教学模型，保留现有学习进度…
+                        </LoadingNotice>
+                        {currentProvider?.provider_type === "fake" && (
+                          <p className="hint">
+                            当前为离线演示，使用固定操作系统样例。
+                          </p>
+                        )}
+                      </section>
+                    )}
+                    <p className="muted small">
+                      API Key
+                      只在后端加密保存。连接测试与教学会向你选择的服务发送请求并可能产生费用。令牌用量见「学习概要
+                      → 学习记录」，金额以服务商账单为准。
                     </p>
-                  )}
-                </section>
-              )}
-              <p className="muted small">
-                API Key
-                只在后端加密保存。连接测试与教学会向你选择的服务发送请求并可能产生费用。令牌用量见学习记录，金额以服务商账单为准。
-              </p>
+                  </>
+                )}
+              </PageTabs>
             </>
           ) : !space ? (
             <div className="empty-space">
-              <span className="eyebrow">YOUR NEXT CHAPTER</span>
+              <span className="eyebrow">连接模型，开启学习</span>
               <h1>从一个想学的目标开始。</h1>
               <p>连接自己的模型，让每一步学习都有依据。</p>
               <div className="button-row">
@@ -475,7 +710,7 @@ function App() {
               </div>
               <div className="empty-graphic">
                 <Layers size={100} strokeWidth={0.7} />
-                <span>GOAL → EVIDENCE → GROWTH</span>
+                <span>确定目标 → 诊断起点 → 循序学习</span>
               </div>
             </div>
           ) : !detail ? (
@@ -484,6 +719,344 @@ function App() {
             </div>
           ) : (
             <>
+              {page === "today" && (
+                <DailyTasks
+                  key={user.id + sid}
+                  root={root}
+                  onStarted={openActivityTask}
+                  onReviewStarted={openReview}
+                  onViewReviews={openReviews}
+                />
+              )}
+              {page === "chat" && (
+                <PlanningChat
+                  key={user.id + sid}
+                  root={root}
+                  plan={detail.plan}
+                  concepts={detail.concepts}
+                  onPlanChanged={async () => {
+                    await refreshLists();
+                    await refreshSpace();
+                  }}
+                  onLessonResumed={async (value) => {
+                    setLesson(value);
+                    setDiagnosis(null);
+                    setPage("classroom");
+                    await refreshSpace();
+                  }}
+                />
+              )}
+              {page === "classroom" && (
+                <button className="chat-entry" onClick={() => setPage("chat")}>
+                  <MessageCircle size={18} /> 需求变了？和助手聊聊，调整学习计划{" "}
+                  <ArrowRight size={16} />
+                </button>
+              )}
+              {page === "report" && (
+                <>
+                  <PageTitle
+                    eyebrow="学习进度 · 复习安排 · 历史记录"
+                    title="学习概要"
+                    subtitle="查看知识掌握情况、近期作答和复习安排，决定下一步学什么。"
+                  />
+                  <PageTabs
+                    label="报告分类"
+                    value={reportSection}
+                    onChange={setReportSection}
+                    tabs={[
+                      { id: "overview", label: "学习概览", icon: BookOpen },
+                      { id: "recent", label: "近期统计", icon: Target },
+                      { id: "weekly", label: "自然周报", icon: CalendarDays },
+                      { id: "reviews", label: "间隔复习", icon: History },
+                      { id: "history", label: "学习记录", icon: History },
+                    ]}
+                  >
+                    {reportSection === "overview" && (
+                      <>
+                        <div className="section-intro">
+                          <h2>让学习，循序向前。</h2>
+                          <p>
+                            从当前目标和作答表现出发，查看进度与下一步建议。
+                          </p>
+                        </div>
+                        <button
+                          className="chat-entry"
+                          onClick={() => setPage("chat")}
+                        >
+                          <MessageCircle size={18} />{" "}
+                          需求变了？和助手聊聊，调整学习计划{" "}
+                          <ArrowRight size={16} />
+                        </button>
+                        <AlgorithmStatus
+                          algorithms={detail.profile.algorithms}
+                        />
+                        <button
+                          className="review-callout"
+                          onClick={openReviews}
+                        >
+                          到期复习 {detail.reviews?.due.length || 0} 项 ·
+                          查看复习安排 <ArrowRight size={16} />
+                        </button>
+                        <div className="hero-grid">
+                          <section className="hero">
+                            <div className="hero-top">
+                              <span className="tag pale">正在学习</span>
+                              <span className="hero-index">
+                                学习空间 /{" "}
+                                {String(spaces.indexOf(space) + 1).padStart(
+                                  2,
+                                  "0",
+                                )}
+                              </span>
+                            </div>
+                            <h2>{space.goal}</h2>
+                            <p>
+                              每天 {space.daily_minutes} 分钟 ·{" "}
+                              {space.expected_level}
+                              {space.target_date
+                                ? " · 目标 " + space.target_date
+                                : ""}
+                            </p>
+                            <div className="hero-bottom">
+                              <div>
+                                <span className="hero-progress">
+                                  {mastered}
+                                  <small> / {stats.length}</small>
+                                </span>
+                                <span className="hero-progress-caption">
+                                  知识点达到初步掌握
+                                </span>
+                              </div>
+                              <ActionButton
+                                loadingText="正在准备学习内容…"
+                                className="light-button"
+                                disabled={!!busy}
+                                onClick={
+                                  detail.events.some(
+                                    (e) => e.type === "diagnostic_submitted",
+                                  )
+                                    ? beginLesson
+                                    : beginDiagnosis
+                                }
+                              >
+                                继续我的学习 <ArrowUpRight size={18} />
+                              </ActionButton>
+                            </div>
+                            <div className="hero-decoration">
+                              <div />
+                              <div />
+                              <div />
+                            </div>
+                          </section>
+                          <section className="card next-card">
+                            <div className="eyebrow">
+                              <span className="orange-dot" /> 根据当前表现推荐
+                            </div>
+                            <h3>{actions[detail.action.action]}</h3>
+                            <strong>
+                              {
+                                detail.concepts.find(
+                                  (c) => c.key === detail.action.concept_ids[0],
+                                )?.name
+                              }
+                            </strong>
+                            <p>{detail.action.reason}</p>
+                            <div className="next-foot">
+                              <span>
+                                约 {detail.action.estimated_minutes} 分钟
+                              </span>
+                              <span>
+                                {detail.action.evidence_event_ids.length} 条依据
+                              </span>
+                            </div>
+                            <ActionButton
+                              loadingText="正在准备学习内容…"
+                              className="text-button"
+                              disabled={!!busy}
+                              onClick={
+                                detail.action.action === "DIAGNOSE"
+                                  ? beginDiagnosis
+                                  : beginLesson
+                              }
+                            >
+                              开始这一步 <ArrowRight size={17} />
+                            </ActionButton>
+                          </section>
+                        </div>
+                        <div className="metrics">
+                          <Metric
+                            label="课程知识点"
+                            value={stats.length}
+                            unit="个"
+                            detail="由模型生成，随学习逐步核实"
+                            icon={Network}
+                          />
+                          <Metric
+                            label="已获得学习证据"
+                            value={
+                              detail.events.filter((e) =>
+                                [
+                                  "assessment_submitted",
+                                  "diagnostic_submitted",
+                                ].includes(e.type),
+                              ).length
+                            }
+                            unit="次"
+                            detail="每次作答均可回溯"
+                            icon={Target}
+                          />
+                          <Metric
+                            label="每日学习时间"
+                            value={space.daily_minutes}
+                            unit="分钟"
+                            detail="按你的可用时间安排"
+                            icon={BookOpen}
+                          />
+                        </div>
+                        <div className="lower-grid">
+                          <section className="card">
+                            <div className="section-head">
+                              <h3>知识掌握概览</h3>
+                              <button
+                                className="text-button"
+                                onClick={() => setPage("knowledge")}
+                              >
+                                查看全部 <ArrowUpRight size={15} />
+                              </button>
+                            </div>
+                            {detail.concepts.map((c, i) => (
+                              <ConceptRow
+                                key={c.key}
+                                concept={c}
+                                state={stats.find(
+                                  (s) => s.concept_id === c.key,
+                                )}
+                                index={i}
+                              />
+                            ))}
+                          </section>
+                          <section className="card principles">
+                            <span className="icon-box">
+                              <FlaskConical size={22} />
+                            </span>
+                            <h3>每一份进步，都有依据。</h3>
+                            <p>
+                              阅读只代表学习经历。通过不同题目的独立作答，才能逐步建立可靠的掌握证据。
+                            </p>
+                            <div>
+                              <Check size={15} /> 学习进度自动保存，下次接着学
+                            </div>
+                            <div>
+                              <Check size={15} /> 每一步推荐，都能查看安排理由
+                            </div>
+                            <div>
+                              <Check size={15} /> 未验证的知识明确标注
+                            </div>
+                          </section>
+                        </div>
+                      </>
+                    )}
+                    {reportSection === "recent" && (
+                      <LearningReport
+                        key={user.id + sid}
+                        root={root}
+                        embedded
+                      />
+                    )}
+                    {reportSection === "weekly" && (
+                      <WeeklySummaries
+                        key={user.id + sid}
+                        embedded
+                        root={root}
+                        onRolling={() => setReportSection("recent")}
+                      />
+                    )}
+                    {reportSection === "reviews" && (
+                      <Reviews
+                        key={user.id + sid}
+                        root={root}
+                        embedded
+                        onStarted={openReview}
+                      />
+                    )}
+                    {reportSection === "history" && (
+                      <>
+                        <div className="section-intro">
+                          <h2>每一步，都留下记录</h2>
+                          <p>
+                            回看诊断、课堂和练习记录，查看模型用量与每次安排的依据。
+                          </p>
+                        </div>
+                        <section className="card">
+                          <h3>学习时间线</h3>
+                          {detail.events.length === 0 && (
+                            <p className="muted">
+                              还没有学习记录，完成一次诊断开始积累证据。
+                            </p>
+                          )}
+                          {[...detail.events].reverse().map((e) => (
+                            <div className="timeline-row" key={e.event_id}>
+                              <span className="timeline-dot" />
+                              <div>
+                                <b>{eventLabels[e.type] || e.type}</b>
+                                <p>
+                                  {e.payload.is_correct === true
+                                    ? "回答正确"
+                                    : e.payload.is_correct === false
+                                      ? "尚未答对"
+                                      : e.payload.next_action?.reason ||
+                                        "学习经历已保存"}
+                                  {e.payload.assistance_level === "hint"
+                                    ? " · 使用了提示"
+                                    : ""}
+                                </p>
+                                <code>{e.event_id.slice(0, 8)}</code>
+                              </div>
+                              <time>
+                                {new Date(
+                                  e.occurred_at.endsWith("Z") ||
+                                    /[+-]\d\d:\d\d$/.test(e.occurred_at)
+                                    ? e.occurred_at
+                                    : e.occurred_at + "Z",
+                                ).toLocaleString("zh-CN")}
+                              </time>
+                            </div>
+                          ))}
+                        </section>
+                        <section className="card runs">
+                          <h3>模型调用记录</h3>
+                          {detail.runs.map((r) => (
+                            <div className="run-row" key={r.run_id}>
+                              <span>{runLabels[r.step] || "模型处理"}</span>
+                              <code>{r.model}</code>
+                              <span>{r.elapsed_ms} ms</span>
+                              <span>
+                                {(r.usage.prompt_tokens || 0) +
+                                  (r.usage.completion_tokens || 0)}{" "}
+                                tokens
+                              </span>
+                              <span>
+                                {r.error_code ||
+                                  (r.usage.cost_status === "demo_no_charge"
+                                    ? "离线演示 · 无费用"
+                                    : "金额未提供")}
+                              </span>
+                            </div>
+                          ))}
+                        </section>
+                      </>
+                    )}
+                  </PageTabs>
+                </>
+              )}
+              {page === "exams" && (
+                <ExamDiagnostics
+                  key={user.id + sid}
+                  root={root}
+                  concepts={detail.concepts}
+                  onStateChanged={() => refreshSpace(sid)}
+                />
+              )}
               {page === "materials" && (
                 <Materials
                   key={user.id + sid}
@@ -497,211 +1070,44 @@ function App() {
                   }}
                 />
               )}
-              {page === "overview" && (
-                <>
-                  <PageTitle
-                    eyebrow="A LITTLE PROGRESS, EVERY DAY"
-                    title="让学习，循序向前。"
-                    subtitle="不止记录你学过什么，更关心你真正掌握了什么。"
-                  />
-                  <div className="hero-grid">
-                    <section className="hero">
-                      <div className="hero-top">
-                        <span className="tag pale">正在学习</span>
-                        <span className="hero-index">
-                          LEARNING JOURNEY /{" "}
-                          {String(spaces.indexOf(space) + 1).padStart(2, "0")}
-                        </span>
-                      </div>
-                      <h2>{space.goal}</h2>
-                      <p>
-                        每天 {space.daily_minutes} 分钟 · {space.expected_level}
-                        {space.target_date
-                          ? " · 目标 " + space.target_date
-                          : ""}
-                      </p>
-                      <div className="hero-bottom">
-                        <div>
-                          <span className="hero-progress">
-                            {mastered}
-                            <small> / {stats.length}</small>
-                          </span>
-                          <span className="hero-progress-caption">
-                            知识点达到初步掌握
-                          </span>
-                        </div>
-                        <button
-                          className="light-button"
-                          disabled={!!busy}
-                          onClick={
-                            detail.events.some(
-                              (e) => e.type === "diagnostic_submitted",
-                            )
-                              ? beginLesson
-                              : beginDiagnosis
-                          }
-                        >
-                          继续我的学习 <ArrowUpRight size={18} />
-                        </button>
-                      </div>
-                      <div className="hero-decoration">
-                        <div />
-                        <div />
-                        <div />
-                      </div>
-                    </section>
-                    <section className="card next-card">
-                      <div className="eyebrow">
-                        <span className="orange-dot" /> NEXT BEST STEP
-                      </div>
-                      <h3>{actions[detail.action.action]}</h3>
-                      <strong>
-                        {
-                          detail.concepts.find(
-                            (c) => c.key === detail.action.concept_ids[0],
-                          )?.name
-                        }
-                      </strong>
-                      <p>{detail.action.reason}</p>
-                      <div className="next-foot">
-                        <span>约 {detail.action.estimated_minutes} 分钟</span>
-                        <span>
-                          {detail.action.evidence_event_ids.length} 条依据
-                        </span>
-                      </div>
-                      <button
-                        className="text-button"
-                        disabled={!!busy}
-                        onClick={
-                          detail.action.action === "DIAGNOSE"
-                            ? beginDiagnosis
-                            : beginLesson
-                        }
-                      >
-                        开始这一步 <ArrowRight size={17} />
-                      </button>
-                    </section>
-                  </div>
-                  <div className="metrics">
-                    <Metric
-                      label="课程知识点"
-                      value={stats.length}
-                      unit="个"
-                      detail="候选课程 · 模型生成"
-                      icon={Network}
-                    />
-                    <Metric
-                      label="已获得学习证据"
-                      value={
-                        detail.events.filter((e) =>
-                          [
-                            "assessment_submitted",
-                            "diagnostic_submitted",
-                          ].includes(e.type),
-                        ).length
-                      }
-                      unit="次"
-                      detail="每次作答均可回溯"
-                      icon={Target}
-                    />
-                    <Metric
-                      label="今日学习预算"
-                      value={space.daily_minutes}
-                      unit="分钟"
-                      detail="按你的可用时间安排"
-                      icon={BookOpen}
-                    />
-                  </div>
-                  <div className="lower-grid">
-                    <section className="card">
-                      <div className="section-head">
-                        <h3>知识掌握概览</h3>
-                        <button
-                          className="text-button"
-                          onClick={() => setPage("knowledge")}
-                        >
-                          查看全部 <ArrowUpRight size={15} />
-                        </button>
-                      </div>
-                      {detail.concepts.map((c, i) => (
-                        <ConceptRow
-                          key={c.key}
-                          concept={c}
-                          state={stats.find((s) => s.concept_id === c.key)}
-                          index={i}
-                        />
-                      ))}
-                    </section>
-                    <section className="card principles">
-                      <span className="icon-box">
-                        <FlaskConical size={22} />
-                      </span>
-                      <h3>每一份进步，都有依据。</h3>
-                      <p>
-                        阅读只代表学习经历。通过不同题目的独立作答，才能逐步建立可靠的掌握证据。
-                      </p>
-                      <div>
-                        <Check size={15} /> 状态持久保存，可跨会话继续
-                      </div>
-                      <div>
-                        <Check size={15} /> 下一步推荐有可查看的理由
-                      </div>
-                      <div>
-                        <Check size={15} /> 未验证的知识明确标注
-                      </div>
-                    </section>
-                  </div>
-                </>
-              )}
               {page === "knowledge" && (
                 <>
                   <PageTitle
-                    eyebrow="KNOW WHAT YOU KNOW"
+                    eyebrow="知识结构 · 前置关系 · 掌握状态"
                     title="你的知识地图"
-                    subtitle="先打好基础，再迈向下一层。未知状态表示证据不足。"
+                    subtitle="查看目标所需的知识点与前置关系，点击节点了解学习内容和掌握情况。"
                   />
-                  <div className="card">
-                    {detail.concepts.map((c, i) => (
-                      <div className="concept-expanded" key={c.key}>
-                        <ConceptRow
-                          concept={c}
-                          state={stats.find((s) => s.concept_id === c.key)}
-                          index={i}
-                        />
-                        <p>{c.objectives.join(" · ")}</p>
-                        <p className="small muted">
-                          前置知识：
-                          {c.prerequisites
-                            .map(
-                              (k) =>
-                                detail.concepts.find((x) => x.key === k)?.name,
-                            )
-                            .join("、") || "无"}{" "}
-                          · 来源：模型生成、待核实
-                        </p>
-                      </div>
-                    ))}
-                  </div>
+                  <KnowledgeMindMap
+                    key={sid}
+                    concepts={detail.concepts}
+                    states={stats}
+                    goal={space?.goal || "我的学习目标"}
+                  />
                 </>
               )}
               {page === "classroom" && (
                 <>
                   <PageTitle
-                    eyebrow="ONE CONCEPT AT A TIME"
+                    eyebrow="诊断起点 · 理解概念 · 练习巩固"
                     title="专属课堂"
-                    subtitle="带着问题学习，用真实表现积累证据。"
+                    subtitle="先了解学习起点，再通过讲解、示例和练习逐步掌握知识。"
                   />
                   <div className="button-row classroom-tabs">
-                    <button onClick={beginDiagnosis} disabled={!!busy}>
+                    <ActionButton
+                      loadingText="正在生成诊断题…"
+                      onClick={beginDiagnosis}
+                      disabled={!!busy}
+                    >
                       初始诊断
-                    </button>
-                    <button
+                    </ActionButton>
+                    <ActionButton
+                      loadingText="正在准备课堂…"
                       className="primary"
                       onClick={beginLesson}
                       disabled={!!busy}
                     >
                       开始 / 继续课堂 <Sparkles size={15} />
-                    </button>
+                    </ActionButton>
                   </div>
                   {diagnosis ? (
                     <section className="card lesson">
@@ -727,18 +1133,16 @@ function App() {
                           }
                         />
                       ))}
-                      <button
+                      <ActionButton
+                        loadingText="正在准备课堂…"
                         className="primary"
-                        onClick={async () => {
-                          setDiagnosis(null);
-                          await beginLesson();
-                        }}
+                        onClick={beginLesson}
                       >
                         进入课堂 <ArrowRight size={16} />
-                      </button>
+                      </ActionButton>
                     </section>
                   ) : lesson ? (
-                    <section className="card lesson">
+                    <section className="card lesson" ref={lessonStart}>
                       <span className="tag green">
                         {actions[lesson.action.action]} · 模型生成，待核实
                       </span>
@@ -749,7 +1153,8 @@ function App() {
                         <b>一个具体的例子</b>
                         <p>{lesson.example}</p>
                       </div>
-                      <button
+                      <ActionButton
+                        loadingText="正在记录阅读…"
                         disabled={!!busy || lesson.completed}
                         onClick={() =>
                           work("记录阅读经历", async (isCurrent) => {
@@ -767,7 +1172,7 @@ function App() {
                       >
                         {lesson.completed ? "已记录阅读经历" : "我已阅读讲解"}{" "}
                         <Check size={15} />
-                      </button>
+                      </ActionButton>
                       <h3>动手验证一下</h3>
                       {lesson.exercises.map((item, i) => (
                         <Question
@@ -786,13 +1191,24 @@ function App() {
                           }
                         />
                       ))}
-                      <button
-                        className="primary"
-                        disabled={!!busy}
-                        onClick={beginLesson}
-                      >
-                        下一次学习 <ArrowRight size={16} />
-                      </button>
+                      <div className="lesson-next" aria-live="polite">
+                        <p className="small muted">
+                          {pendingExercises
+                            ? `还有 ${pendingExercises} 道练习待提交，完成后即可继续。`
+                            : lesson.completed
+                              ? "本次阅读和练习已完成，可以开始下一次学习。"
+                              : "练习已全部提交。点击继续将确认本次讲解已读，并准备下一次学习。"}
+                        </p>
+                        {error && <p className="error">{error}</p>}
+                        <ActionButton
+                          loadingText="正在准备下一次学习…"
+                          className="primary"
+                          disabled={!!busy}
+                          onClick={nextLesson}
+                        >
+                          下一次学习 <ArrowRight size={16} />
+                        </ActionButton>
+                      </div>
                     </section>
                   ) : (
                     <div className="card empty-class">
@@ -803,78 +1219,12 @@ function App() {
                   )}
                 </>
               )}
-              {page === "history" && (
-                <>
-                  <PageTitle
-                    eyebrow="EVIDENCE OF YOUR PROGRESS"
-                    title="每一步，都留下记录"
-                    subtitle="学习事件只追加保存。模型调用用量与学习决策均可追溯。"
-                  />
-                  <section className="card">
-                    <h3>学习时间线</h3>
-                    {detail.events.length === 0 && (
-                      <p className="muted">
-                        还没有学习记录，完成一次诊断开始积累证据。
-                      </p>
-                    )}
-                    {[...detail.events].reverse().map((e) => (
-                      <div className="timeline-row" key={e.event_id}>
-                        <span className="timeline-dot" />
-                        <div>
-                          <b>{eventLabels[e.type] || e.type}</b>
-                          <p>
-                            {e.payload.is_correct === true
-                              ? "回答正确"
-                              : e.payload.is_correct === false
-                                ? "尚未答对"
-                                : e.payload.next_action?.reason ||
-                                  "学习经历已保存"}
-                            {e.payload.assistance_level === "hint"
-                              ? " · 使用了提示"
-                              : ""}
-                          </p>
-                          <code>{e.event_id.slice(0, 8)}</code>
-                        </div>
-                        <time>
-                          {new Date(
-                            e.occurred_at.endsWith("Z") ||
-                              /[+-]\d\d:\d\d$/.test(e.occurred_at)
-                              ? e.occurred_at
-                              : e.occurred_at + "Z",
-                          ).toLocaleString("zh-CN")}
-                        </time>
-                      </div>
-                    ))}
-                  </section>
-                  <section className="card runs">
-                    <h3>模型调用记录</h3>
-                    {detail.runs.map((r) => (
-                      <div className="run-row" key={r.run_id}>
-                        <span>{r.step}</span>
-                        <code>{r.model}</code>
-                        <span>{r.elapsed_ms} ms</span>
-                        <span>
-                          {(r.usage.prompt_tokens || 0) +
-                            (r.usage.completion_tokens || 0)}{" "}
-                          tokens
-                        </span>
-                        <span>
-                          {r.error_code ||
-                            (r.usage.cost_status === "demo_no_charge"
-                              ? "离线演示 · 无费用"
-                              : "金额未提供")}
-                        </span>
-                      </div>
-                    ))}
-                  </section>
-                </>
-              )}
             </>
           )}
           <footer>
             <span>StudyAgent Framework</span>
             <span>以目标为起点，以证据为方向。</span>
-            <span>BYOK / M2</span>
+            <span>自选模型 · 持续学习</span>
           </footer>
         </div>
       </main>
@@ -907,7 +1257,7 @@ function App() {
                     await refreshLists();
                     if (!isCurrent()) return;
                     selectSpace(s.id);
-                    setPage("overview");
+                    openOverview();
                     setModal("");
                   })
                 }
@@ -992,6 +1342,7 @@ function Question({ item, index, initial, onAnswer, onHint }) {
   const [answer, setAnswer] = useState(""),
     [result, setResult] = useState(initial),
     [hint, setHint] = useState("");
+  const [memoryRating, setMemoryRating] = useState("");
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [requestKey] = useState(key);
@@ -1043,27 +1394,65 @@ function Question({ item, index, initial, onAnswer, onHint }) {
           placeholder="写下你的思考…"
         />
       )}
+      {!result && item.purpose === "review" && (
+        <label className="memory-rating">
+          回忆难度（可选）
+          <select
+            aria-label="回忆难度"
+            value={memoryRating}
+            disabled={busy}
+            onChange={(e) => setMemoryRating(e.target.value)}
+          >
+            <option value="">自动根据作答结果安排复习</option>
+            <option value="again">没有独立想起</option>
+            <option value="hard" disabled={!!hint}>
+              独立想起，但很费力
+            </option>
+            <option value="good" disabled={!!hint}>
+              独立想起
+            </option>
+            <option value="easy" disabled={!!hint}>
+              轻松独立想起
+            </option>
+          </select>
+          <small>按实际回忆情况选择；系统会结合作答结果安排下次复习。</small>
+        </label>
+      )}
       {!result && (
         <div className="button-row">
-          <button
+          <ActionButton
+            loadingText="正在提交答案…"
             className="primary"
             disabled={!answer.trim() || busy}
             onClick={() =>
               run(async () =>
-                setResult(await onAnswer(item, answer, requestKey)),
+                setResult(
+                  await onAnswer(
+                    item,
+                    answer,
+                    requestKey,
+                    memoryRating || null,
+                  ),
+                ),
               )
             }
           >
-            {busy ? "处理中…" : "提交答案"}
+            提交答案
             <ArrowRight size={15} />
-          </button>
-          <button
+          </ActionButton>
+          <ActionButton
+            loadingText="正在获取提示…"
             className="text-button"
             disabled={busy}
-            onClick={() => run(async () => setHint(await onHint(item.id)))}
+            onClick={() =>
+              run(async () => {
+                setHint(await onHint(item.id));
+                setMemoryRating("");
+              })
+            }
           >
             <CircleHelp size={15} /> 给我一点提示
-          </button>
+          </ActionButton>
         </div>
       )}
       {hint && <p className="hint">{hint}</p>}
@@ -1078,6 +1467,12 @@ function Question({ item, index, initial, onAnswer, onHint }) {
             {result.assistance_level === "hint" && " · 提示辅助"}
           </b>
           <p>{result.feedback}</p>
+          {result.memory && (
+            <p className="small">
+              复习安排：{result.memory.reason} · 下次复习{" "}
+              {new Date(result.memory.due).toLocaleString("zh-CN")}
+            </p>
+          )}
           <small>
             参考答案：{result.correct_answer} · 评分置信度：{result.confidence}
           </small>
@@ -1092,144 +1487,10 @@ function Question({ item, index, initial, onAnswer, onHint }) {
   );
 }
 
-function ProviderForm({ existing, demo, busy, onSubmit }) {
-  const [kind, setKind] = useState(
-    existing?.provider_type || "openai_compatible",
-  );
-  const [name, setName] = useState(existing?.name || ""),
-    [url, setUrl] = useState(existing?.base_url || "https://api.openai.com/v1");
-  const [model, setModel] = useState(existing?.chat_model || ""),
-    [secret, setSecret] = useState("");
-  const [embeddingModel, setEmbeddingModel] = useState(
-    existing?.embedding_model || "",
-  );
-  const isDemo = kind === "fake" || kind === "fake_files";
-  const [consent, setConsent] = useState(false);
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        const body = {
-          name: name || (isDemo ? "离线演示" : "我的模型"),
-          chat_model: isDemo ? "demo-model" : model,
-          embedding_model: embeddingModel || null,
-          base_url: url,
-        };
-        if (!existing) body.provider_type = kind;
-        if (secret || !existing) body.api_key = isDemo ? "demo" : secret;
-        onSubmit(body);
-      }}
-    >
-      <span className="eyebrow">BRING YOUR OWN KEY</span>
-      <h2>{existing ? "更新模型连接" : "连接你的模型"}</h2>
-      <p className="muted">凭证加密保存，所有教学调用使用你选择的模型。</p>
-      {!existing && (
-        <label>
-          接口类型
-          <select value={kind} onChange={(e) => setKind(e.target.value)}>
-            <option value="openai_compatible">
-              OpenAI-compatible 聊天接口
-            </option>
-            <option value="openai_files">
-              原生 PDF（Files + Responses，需检测）
-            </option>
-            {demo && (
-              <>
-                <option value="fake">离线演示（固定操作系统样例）</option>
-                <option value="fake_files">
-                  资料演示（固定样例，未读取上传内容）
-                </option>
-              </>
-            )}
-          </select>
-        </label>
-      )}
-      <label>
-        连接名称
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="例如：我的学习模型"
-          maxLength={100}
-        />
-      </label>
-      {!isDemo ? (
-        <>
-          <label>
-            Base URL
-            <input
-              required
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            />
-          </label>
-          <label>
-            聊天模型名称
-            <input
-              required
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="填写服务商提供的模型 ID"
-              maxLength={200}
-            />
-          </label>
-          <label>
-            API Key
-            <input
-              required={!existing}
-              type="password"
-              value={secret}
-              onChange={(e) => setSecret(e.target.value)}
-              placeholder={
-                existing ? "留空保留当前密钥" : "仅发送至后端加密保存"
-              }
-              autoComplete="new-password"
-            />
-          </label>
-          <label className="checkbox">
-            <input
-              required
-              type="checkbox"
-              checked={consent}
-              onChange={(e) => setConsent(e.target.checked)}
-            />
-            <span>
-              我授权将学习目标、教学上下文和答案发送至此服务商；原生文件能力检测会上传随机标识测试
-              PDF。调用可能产生费用，数据保留遵循其政策。
-            </span>
-          </label>
-        </>
-      ) : (
-        <p className="hint">
-          演示模式仅使用固定操作系统样例，不连接外部模型、不产生费用，不代表其他领域的真实教学结果。
-        </p>
-      )}
-      {(kind === "openai_files" || kind === "fake_files") && (
-        <label>
-          远端 Embedding 模型（可选）
-          <input
-            value={embeddingModel}
-            onChange={(e) => setEmbeddingModel(e.target.value)}
-            maxLength={200}
-            placeholder="留空使用关键词 + 模型精排"
-          />
-        </label>
-      )}
-      <button className="primary full" disabled={!!busy}>
-        {busy || "保存模型连接"}
-        <ArrowRight size={16} />
-      </button>
-    </form>
-  );
-}
-
 function SpaceForm({ providers, busy, onSubmit }) {
   const available = providers.filter((p) => p.tested),
     [pid, setPid] = useState(available[0]?.id || "");
-  const [goal, setGoal] = useState(""),
-    [minutes, setMinutes] = useState(30),
-    [date, setDate] = useState("");
+  const [goal, setGoal] = useState("");
   const [requestKey] = useState(key);
   const fake = available.find((p) => p.id === pid)?.provider_type === "fake";
   return (
@@ -1239,15 +1500,15 @@ function SpaceForm({ providers, busy, onSubmit }) {
         onSubmit({
           provider_id: pid,
           goal,
-          daily_minutes: Number(minutes),
-          target_date: date || null,
           idempotency_key: requestKey,
         });
       }}
     >
-      <span className="eyebrow">START WITH A GOAL</span>
+      <span className="eyebrow">一个目标，一个独立的学习空间</span>
       <h2>开启一段新的学习</h2>
-      <p className="muted">告诉我们你想学什么，其余的交给学习框架。</p>
+      <p className="muted">
+        写下想学的内容，助手会据此生成课程，并通过诊断安排学习起点。
+      </p>
       <label>
         学习目标
         <input
@@ -1280,155 +1541,18 @@ function SpaceForm({ providers, busy, onSubmit }) {
           此模型将载入固定操作系统演示课程。学习其他领域请接入真实模型。
         </p>
       )}
-      <div className="form-row">
-        <label>
-          每日可用时间（分钟）
-          <input
-            type="number"
-            min={5}
-            max={480}
-            required
-            value={minutes}
-            onChange={(e) => setMinutes(e.target.value)}
-          />
-        </label>
-        <label>
-          目标日期（可选）
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-        </label>
-      </div>
       <p className="small muted">
-        没有教材也可以开始。课程及测评答案由模型生成，考试大纲版本须另行核实。
+        没有教材也可以开始，之后可在「私人教材」补充资料。模型生成的课程与答案请结合教材核对。
       </p>
-      <button className="primary full" disabled={!!busy || !pid}>
-        {busy || "生成我的学习空间"}
-        <ArrowRight size={16} />
-      </button>
+      <ActionButton
+        className="primary full"
+        disabled={!!busy || !pid}
+        loading={!!busy}
+        loadingText="正在生成课程与学习空间…"
+      >
+        生成我的学习空间 <ArrowRight size={16} />
+      </ActionButton>
     </form>
-  );
-}
-
-function Auth({ onLogin, config }) {
-  const [register, setRegister] = useState(false),
-    [username, setUsername] = useState(""),
-    [password, setPassword] = useState("");
-  const [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
-  return (
-    <div className="auth-page">
-      <section className="auth-story">
-        <div className="brand">
-          <span className="brand-icon">
-            <Layers size={24} />
-          </span>{" "}
-          StudyAgent
-        </div>
-        <span className="eyebrow">YOUR KNOWLEDGE. YOUR PACE.</span>
-        <h1>
-          让每一步学习，
-          <br />
-          都有依据。
-        </h1>
-        <p>
-          一个了解你的学习起点、记得你的进步，
-          <br />
-          并持续为你规划下一步的个人学习空间。
-        </p>
-        <div className="auth-visual">
-          <span>01 / 确定目标</span>
-          <span>02 / 发现起点</span>
-          <span>
-            03 / 循序向前 <ArrowUpRight size={20} />
-          </span>
-        </div>
-        <small>BYOK · 持久化学习状态 · 可追溯的学习证据</small>
-      </section>
-      <section className="auth-form">
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setBusy(true);
-            setError("");
-            try {
-              const u = await api(
-                "/auth/" + (register ? "register" : "login"),
-                { method: "POST", body: { username, password } },
-              );
-              await onLogin(u);
-            } catch (err) {
-              setError(err.message);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <span className="eyebrow">WELCOME TO YOUR NEXT CHAPTER</span>
-          <h2>{register ? "创建你的学习账号" : "欢迎回到学习空间"}</h2>
-          <p className="muted">
-            {register
-              ? "从今天开始，积累属于你的进步。"
-              : "接上昨天的思路，继续今天的进步。"}
-          </p>
-          <label>
-            用户名
-            <input
-              required
-              minLength={3}
-              maxLength={64}
-              pattern="[a-zA-Z0-9_\-]+"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              placeholder="3–64 位字母、数字、下划线"
-            />
-          </label>
-          <label>
-            密码
-            <input
-              required
-              type="password"
-              minLength={10}
-              maxLength={128}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete={register ? "new-password" : "current-password"}
-              placeholder="至少 10 位"
-            />
-          </label>
-          {error && (
-            <div className="error" role="alert">
-              {error}
-            </div>
-          )}
-          <button className="primary full" disabled={busy}>
-            {busy ? "连接中…" : register ? "创建账号" : "进入学习空间"}
-            <ArrowRight size={17} />
-          </button>
-          <p className="auth-switch">
-            {register ? "已有账号？" : "第一次来？"}{" "}
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => {
-                setRegister(!register);
-                setError("");
-              }}
-            >
-              {register ? "登录" : "创建账号"}
-            </button>
-          </p>
-          {config.demo_enabled && (
-            <span className="demo-hint">
-              <FlaskConical size={14} /> 当前允许无付费 Key 的离线演示
-            </span>
-          )}
-        </form>
-      </section>
-    </div>
   );
 }
 

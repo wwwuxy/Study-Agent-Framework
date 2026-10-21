@@ -3,8 +3,10 @@
 import asyncio
 import base64
 import logging
+import time
 from datetime import timedelta
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 from sqlalchemy import select
 
@@ -16,6 +18,7 @@ from app.exam_diagnostics.contracts import ExamCheckpoint
 from app.exam_diagnostics.models import ExamAttachment, ExamJob
 from app.exam_diagnostics.storage import ExamStorage
 from app.providers.base import ExamInput, ModelCallLimits, ProviderError
+from app.providers.compatible import CompatibleAdapter
 from app.schemas.exams import ExamAdvice, ExamRecognition
 
 logger = logging.getLogger("uvicorn.error.study_agent")
@@ -60,7 +63,7 @@ def release_upload(sessions, claim):
             queue.enqueue_cleanup(db, job)
 
 
-def audit(sessions, claim, snapshot, step, usage, error=None):
+def audit(sessions, claim, snapshot, step, usage, error=None, *, elapsed_ms=0):
     with sessions.begin() as db:
         space = db.get(StudySpace, claim.space_id)
         if not space or space.status == "deleted":
@@ -74,7 +77,7 @@ def audit(sessions, claim, snapshot, step, usage, error=None):
                 provider_id=snapshot["id"],
                 model=snapshot["chat_model"],
                 step=step,
-                elapsed_ms=0,
+                elapsed_ms=elapsed_ms,
                 usage=dict(usage),
                 error_code=error.code if error else None,
             )
@@ -125,6 +128,8 @@ def publish_result(sessions, claim, rec, advice):
 async def run_claim(app, claim):
     snapshot = None
     adapter = None
+    started = time.monotonic()
+    phase = "试卷识别"
     try:
 
         def kind(sessions):
@@ -140,6 +145,16 @@ async def run_claim(app, claim):
         snapshot = data["provider_snapshot"]
         limits = ModelCallLimits(app.state.settings.exam_max_output_tokens, 0)
         adapter = get_adapter(SimpleNamespace(app=app), SimpleNamespace(**snapshot), call_limits=limits)
+        if isinstance(adapter, CompatibleAdapter):
+            # The stage budget must reach the HTTP client; otherwise its default
+            # 30-second read timeout fires before the 120-second exam deadline.
+            adapter.timeout = app.state.settings.exam_call_timeout_seconds
+            if urlsplit(adapter.base_url).hostname == "api.deepseek.com" and adapter.model in {
+                "deepseek-flash",
+                "deepseek-v4-flash",
+                "deepseek-v4-flash-vision-exp",
+            }:
+                adapter.thinking_mode = "disabled"
         rec = ExamRecognition.model_validate(data["recognition"]) if data.get("recognition") else None
         advice = ExamAdvice.model_validate(data["advice"]) if data.get("advice") else None
 
@@ -193,6 +208,7 @@ async def run_claim(app, claim):
                 ExamCheckpoint(rec, None, data["provider_fingerprint"], data["concept_fingerprint"]),
             )
         if advice is None:
+            phase = "诊断建议生成"
             await db_phase(app, prepare, claim)
             advice = await remote(recognition.advise(adapter, rec, concepts, limits))
             await db_phase(
@@ -202,7 +218,15 @@ async def run_claim(app, claim):
                 "publishing",
                 ExamCheckpoint(rec, advice, data["provider_fingerprint"], data["concept_fingerprint"]),
             )
-        await db_phase(app, audit, claim, snapshot, "exam_diagnostic", adapter.usage)
+        await db_phase(
+            app,
+            audit,
+            claim,
+            snapshot,
+            "exam_diagnostic",
+            adapter.usage,
+            elapsed_ms=int((time.monotonic() - started) * 1000),
+        )
         await db_phase(app, publish_result, claim, rec, advice)
     except asyncio.CancelledError:
         # Leave a leased checkpoint so another worker can recover after expiry.
@@ -216,10 +240,25 @@ async def run_claim(app, claim):
                 "试卷处理未完成，可稍后重试",
             )
         )
+        if error.code in {"provider_timeout", "exam_timeout"}:
+            error = ProviderError(
+                error.code,
+                f"{phase}请求超时（上限 {app.state.settings.exam_call_timeout_seconds} 秒）；"
+                "可重试，已完成的处理阶段会保留。",
+            )
         logger.info("exam_failed code=%s type=%s", error.code, type(exc).__name__)
         try:
             if snapshot and adapter:
-                await db_phase(app, audit, claim, snapshot, "exam_diagnostic", adapter.usage, error)
+                await db_phase(
+                    app,
+                    audit,
+                    claim,
+                    snapshot,
+                    "exam_diagnostic",
+                    adapter.usage,
+                    error,
+                    elapsed_ms=int((time.monotonic() - started) * 1000),
+                )
             await db_phase(app, fail, claim, error)
         except ProviderError as bookkeeping_error:
             if bookkeeping_error.code != "maintenance":

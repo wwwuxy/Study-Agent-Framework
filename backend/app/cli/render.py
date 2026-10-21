@@ -21,7 +21,9 @@ def render_question(item):
 def render_result(result):
     correct = result.get("is_correct")
     label = "回答正确" if correct is True else "尚未答对" if correct is False else "需要进一步评估"
-    return f"{label} · {result.get('assistance_level', 'none')}\n{result.get('feedback', '')}\n参考答案：{result.get('correct_answer', '')}"
+    memory = result.get("memory")
+    suffix = f"\nFSRS：{memory['reason']} · 下次 {memory['due']}" if memory else ""
+    return f"{label} · {result.get('assistance_level', 'none')}\n{result.get('feedback', '')}\n参考答案：{result.get('correct_answer', '')}{suffix}"
 
 
 def human_output(data):
@@ -31,6 +33,36 @@ def human_output(data):
         return "\n\n".join(human_output(row) for row in data)
     if not isinstance(data, dict):
         return str(data) if data is not None else "操作完成。"
+    activity = render_activity(data)
+    if activity is not None:
+        return activity
+    if "bkt" in data and "fsrs" in data:
+        return (
+            f"BKT：统一启用 · pyBKT {data['bkt']['library_version']}\n"
+            f"FSRS：统一启用 · {data['fsrs']['library_version']}\n{data.get('notice', '')}"
+        )
+    if "distribution" in data and "task_completion" in data:
+        rows = [
+            f"最近 {data['days']} 天学习报告",
+            data["notice"],
+            f"作答 {data['evidence']['answers']} 次 · 独立 {data['evidence']['independent']} 次",
+            "能力分布：" + "、".join(f"{STATUS.get(k, k)} {v}" for k, v in data["distribution"].items()),
+            f"到期复习：{len(data['reviews']['due'])} 项",
+            "下一步：" + data["next_action"]["reason"],
+        ]
+        return "\n".join(rows)
+    if all(name in data for name in ("due", "upcoming", "unassessed")):
+        return "\n".join(
+            [
+                f"到期 {len(data['due'])} · 未到期 {len(data['upcoming'])} · 待建立证据 {len(data['unassessed'])}"
+            ]
+            + [
+                f"{row['concept_id']}  {row['name']} · {row['due']} · {row['state']}"
+                for row in data["due"] + data["upcoming"]
+            ]
+        )
+    if "lesson" in data and "concept_id" in data:
+        return f"复习 {data['id']} · {data['status']}\n" + human_output(data["lesson"])
     if "profile" in data:
         names = {c["key"]: c["name"] for c in data.get("concepts", [])}
         profile = data["profile"]
@@ -81,3 +113,48 @@ def render_citations(sources):
         + "\n".join(f"  {s['filename']} / {s['heading']} · {s['source_id']}" for s in sources)
         + "\n\n"
     )
+
+
+def render_activity(data):
+    if "next_cursor" in data:
+        result = human_output(data["items"])
+        return result + ("\n下一页 --cursor " + data["next_cursor"] if data["next_cursor"] else "")
+    if "plan" in data:
+        return human_output(data["plan"]) if data["plan"] else data.get("reason", "尚无今日任务")
+    if "slots" in data:
+        return f"今日 {data['local_date']} · 预算 {data['budget_minutes']} 分钟\n" + "\n".join(
+            human_output(slot["task"]) + f" · 分配 {slot['allocated_minutes']} 分钟" for slot in data["slots"]
+        )
+    if "execution_kind" in data:
+        return human_output(data["task"]) + (
+            "\n继续课堂：learn --space " + data["task"]["study_space_id"]
+            if data["execution_kind"] == "lesson"
+            else "\n继续诊断：diagnose --space " + data["task"]["study_space_id"]
+        )
+    if "plan_id" in data and "concept_id" in data:
+        return f"{data['id']}  {data['name']} · {data['action']} · {data['status']}\n{data['reason']}"
+    if "week_start" in data and "forecast" in data:
+        return (
+            f"自然周 {data['week_start']} · 作答 {data['answers']} 次 · 独立 {data['independent']} 次\n"
+            + data["forecast"]["reason"]
+            + "\n"
+            + data["notice"]
+        )
+    if "unknown_calls" in data:
+        return (
+            f"AI 分析每日额度 {data['utc_date']} UTC · 调用 {data['calls']}/{data['call_limit']}\n"
+            f"占用 {data['occupied_tokens']} / {data['token_limit']} tokens · 已知实际 {data['actual_tokens']}"
+            f" · 未知用量 {data['unknown_calls']} 次\n{data['notice']}"
+        )
+    if "source_kind" in data and "reserved_tokens" in data:
+        content = data.get("content") or {}
+        return f"分析 {data['id']} · {data['status']}\n" + content.get(
+            "summary", data.get("error_message") or "处理中"
+        )
+    if "source_kind" in data and "read_at" in data:
+        return f"{data['id']} · {'已读' if data['read_at'] else '未读'} · {data['title']}\n{data['summary']}"
+    if "fingerprint" in data and "kind" in data:
+        return f"{data['id']} · {data['status']} · {data['title']}\n{data['reason']}"
+    if "executions" in data and "available_at" in data:
+        return f"{data['id']} · {data['kind']} · {data['status']} · 尝试 {data['attempts']}\n{data.get('error_message') or ''}"
+    return None

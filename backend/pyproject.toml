@@ -5,16 +5,18 @@ build-backend = "hatchling.build"
 [project]
 name = "study-agent"
 version = "0.1.0"
-description = "BYOK personal learning agent — M1"
+description = "BYOK personal learning agent — M4 active learning, native BKT and FSRS"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115,<1", "uvicorn[standard]>=0.30,<1", "sqlalchemy>=2.0,<3",
   "alembic>=1.13,<2", "psycopg[binary]>=3.2,<4", "pydantic-settings>=2.6,<3",
   "httpx>=0.27,<1", "cryptography>=43", "jsonschema>=4.23,<5",
+  "pyBKT==1.4.3", "fsrs==6.3.2", "scikit-learn==1.7.2", "numpy==2.3.5", "Pillow>=11,<13",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2", "ruff>=0.8,<1", "httpx2>=2,<3"]
+calibration = ["fsrs[optimizer]==6.3.2"]
 
 [project.scripts]
 study-agent = "app.cli.main:main"

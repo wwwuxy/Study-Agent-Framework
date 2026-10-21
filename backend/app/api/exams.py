@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 
 from app.api.deps import current_user, get_db, own_provider, own_space
 from app.core.security import token_hash
-from app.exam_diagnostics import drafts, queries, queue, review
+from app.exam_diagnostics import deletion, drafts, queries, queue, review
 from app.exam_diagnostics.storage import ExamStorage
 from app.providers.base import ProviderError
 from app.schemas.exams import (
@@ -115,6 +115,18 @@ async def discard(
         own_space(db, user.id, space_id),
         diagnostic_id,
         request.app.state.settings.material_storage_dir,
+    )
+    return Response(status_code=204)
+
+
+@router.delete("/{diagnostic_id}", status_code=204)
+async def remove(
+    space_id: str, diagnostic_id: str, request: Request, db=Depends(get_db), user=Depends(current_user)
+):
+    await deletion.remove(db, user, own_space(db, user.id, space_id), diagnostic_id)
+    db.commit()
+    deletion.erase_local_files(
+        db, user.id, space_id, diagnostic_id, request.app.state.settings.material_storage_dir
     )
     return Response(status_code=204)
 

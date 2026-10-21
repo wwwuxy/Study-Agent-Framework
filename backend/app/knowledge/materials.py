@@ -5,7 +5,7 @@ import json
 
 from sqlalchemy import select
 
-from app.db.models import MaterialAsset, MaterialJob, MaterialSection, new_id
+from app.db.models import MaterialAsset, MaterialJob, MaterialSection, StudySpace, new_id, utcnow
 from app.providers.base import ProviderError
 
 
@@ -26,8 +26,13 @@ def fingerprint(config):
 
 def own_asset(db, user_id, space_id, asset_id, include_deleted=False):
     asset = db.scalar(
-        select(MaterialAsset).where(
-            MaterialAsset.id == asset_id, MaterialAsset.user_id == user_id, MaterialAsset.space_id == space_id
+        select(MaterialAsset)
+        .join(StudySpace, MaterialAsset.space_id == StudySpace.id)
+        .where(
+            MaterialAsset.id == asset_id,
+            MaterialAsset.user_id == user_id,
+            MaterialAsset.space_id == space_id,
+            StudySpace.status.not_in(["archived", "deleted"]),
         )
     )
     if not asset or (not include_deleted and asset.status in {"deleted", "deleting"}):
@@ -51,6 +56,16 @@ def public_job(job):
             "error_message",
         )
     }
+
+
+def inflight_indexes():
+    # Cancelled workers may still be awaiting an upload response. Their lease
+    # bounds that wait; keep origin credentials until they return or time out.
+    return select(MaterialJob).where(
+        MaterialJob.kind == "index",
+        MaterialJob.status.in_(["running", "cancelled"]),
+        MaterialJob.lease_until > utcnow(),
+    )
 
 
 def new_job(db, asset, key, kind="index", data=None):

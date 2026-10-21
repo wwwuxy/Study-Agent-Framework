@@ -106,6 +106,24 @@ async def test_invalid_json_has_bounded_retries():
     assert len(attempts) == 3
 
 
+@pytest.mark.parametrize("wrapper", ["```json\n%s\n```", " \n```JSON\r\n%s\r\n```\n", "```\n%s\n```"])
+async def test_structured_output_accepts_a_single_json_code_fence(wrapper):
+    provider = adapter(
+        lambda _: httpx.Response(
+            200, json={"choices": [{"message": {"content": wrapper % '{"hint":"从定义出发"}'}}]}
+        )
+    )
+    assert await provider.generate_structured([], Hint.model_json_schema()) == {"hint": "从定义出发"}
+
+
+@pytest.mark.parametrize("content", ['```json\n{"hint":3}\n```', '说明文字\n```json\n{"hint":"提示"}\n```'])
+async def test_fenced_json_still_requires_schema_and_no_surrounding_prose(content):
+    provider = adapter(lambda _: httpx.Response(200, json={"choices": [{"message": {"content": content}}]}))
+    with pytest.raises(ProviderError) as error:
+        await provider.generate_structured([], Hint.model_json_schema())
+    assert error.value.code == "invalid_structured_output"
+
+
 async def test_unsupported_features_raise_and_are_not_claimed():
     provider = adapter(
         lambda req: httpx.Response(200, json={"choices": [{"message": {"content": '{"ok":true}'}}]})

@@ -1,3 +1,4 @@
+import threading
 import time
 from collections import defaultdict, deque
 
@@ -12,8 +13,13 @@ from app.providers.base import ProviderError
 class RateLimiter:
     def __init__(self):
         self.entries = defaultdict(deque)
+        self.lock = threading.Lock()
 
     def check(self, key, limit):
+        with self.lock:
+            self._check(key, limit)
+
+    def _check(self, key, limit):
         now = time.monotonic()
         # Remove expired keys as well as expired hits to bound anonymous traffic memory.
         if len(self.entries) > 5000:
@@ -47,14 +53,31 @@ async def get_db(request: Request):
 
 
 def current_user(request: Request, db=Depends(get_db)):
-    token = request.cookies.get("study_session", "")
-    session = db.get(AuthSession, token_hash(token)) if token else None
+    return session_user(
+        db, token_hash(request.cookies.get("study_session", "")), lock=request.method != "GET"
+    )
+
+
+def session_user(db, hashed, *, lock=False, lock_session=False):
+    session = db.get(AuthSession, hashed)
     if session is None or as_utc(session.expires_at) <= utcnow():
         raise ProviderError("unauthenticated", "请先登录", 401)
     query = select(User).where(User.id == session.user_id)
-    if request.method != "GET":
+    if lock:
         query = query.with_for_update()
-    return db.scalar(query)
+    user = db.scalar(query)
+    if lock:
+        check = (
+            select(AuthSession)
+            .where(AuthSession.token_hash == hashed)
+            .execution_options(populate_existing=True)
+        )
+        if lock_session:
+            check = check.with_for_update()
+        latest = db.scalar(check)
+        if latest is None or as_utc(latest.expires_at) <= utcnow():
+            raise ProviderError("unauthenticated", "登录已失效，本次未应用", 401)
+    return user
 
 
 def own_provider(db, user_id, provider_id, require_tested=False):
@@ -68,8 +91,8 @@ def own_provider(db, user_id, provider_id, require_tested=False):
     return config
 
 
-def own_space(db, user_id, space_id):
+def own_space(db, user_id, space_id, include_archived=False):
     space = db.scalar(select(StudySpace).where(StudySpace.id == space_id, StudySpace.user_id == user_id))
-    if not space:
+    if not space or space.status == "deleted" or (space.status == "archived" and not include_archived):
         raise ProviderError("not_found", "学习空间不存在", 404)
     return space

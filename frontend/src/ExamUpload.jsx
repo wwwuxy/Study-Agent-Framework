@@ -1,7 +1,13 @@
 import React, { useEffect, useState } from "react";
+import ActionButton from "./ActionButton";
 import { Upload, FileText, ArrowUp, ArrowDown } from "lucide-react";
 
-export default function ExamUpload({ capabilities, onUpload, busy }) {
+export default function ExamUpload({
+  capabilities,
+  onUpload,
+  busy,
+  uploading,
+}) {
   const [files, setFiles] = useState([]),
     [name, setName] = useState(""),
     [examDate, setExamDate] = useState(""),
@@ -192,13 +198,14 @@ export default function ExamUpload({ capabilities, onUpload, busy }) {
             {error}
           </p>
         )}
-        <button
+        <ActionButton
           className="primary"
           disabled={!supported || busy || !files.length || !consent}
+          loading={uploading}
+          loadingText="正在上传试卷并提交诊断…"
         >
-          <Upload size={16} />
-          {busy ? "正在上传…" : "上传并诊断"}
-        </button>
+          <Upload size={16} /> 上传并诊断
+        </ActionButton>
       </form>
     </section>
   );

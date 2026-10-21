@@ -1,5 +1,6 @@
+import ActionButton from "./ActionButton";
 import React, { useEffect, useRef, useState } from "react";
-import { FileText, LoaderCircle, RefreshCw } from "lucide-react";
+import { FileText, LoaderCircle, RefreshCw, Trash2 } from "lucide-react";
 import { api, key } from "./api";
 import { createLatestRequest } from "./latestRequest";
 import { createExamDiagnosticState } from "./examDiagnosticState";
@@ -30,14 +31,16 @@ export default function ExamDiagnostics({
     [rows, setRows] = useState([]),
     [selected, setSelected] = useState(null),
     [cursor, setCursor] = useState(null),
-    [busy, setBusy] = useState(false),
+    [busy, setBusy] = useState(""),
     [error, setError] = useState(""),
     [consent, setConsent] = useState(false),
+    [pendingDelete, setPendingDelete] = useState(null),
     [loading, setLoading] = useState(true);
   const actions = useRef(createExamDiagnosticState({ api, makeKey: key })),
     reads = useRef(createLatestRequest()),
     alive = useRef(true),
-    notified = useRef(new Set());
+    notified = useRef(new Set()),
+    cancelDeleteButton = useRef(null);
   const base = root + "/exam-diagnostics";
   async function history(before = null) {
     await reads.current.run(
@@ -74,6 +77,9 @@ export default function ExamDiagnostics({
     }
     if (alive.current) await history();
   }
+  useEffect(() => {
+    if (pendingDelete) cancelDeleteButton.current?.focus();
+  }, [pendingDelete]);
   useEffect(() => {
     alive.current = true;
     Promise.all([
@@ -114,12 +120,12 @@ export default function ExamDiagnostics({
     };
   }, [root, selected?.id, pending]);
   async function upload(files, metadata, allow) {
-    setBusy(true);
+    setBusy("upload");
     setError("");
     try {
       await actions.current.upload(root, files, metadata, allow, accept);
     } finally {
-      if (alive.current) setBusy(false);
+      if (alive.current) setBusy("");
     }
   }
   async function select(row) {
@@ -132,7 +138,7 @@ export default function ExamDiagnostics({
     }
   }
   async function mutate(action, method = "POST") {
-    setBusy(true);
+    setBusy(action);
     setError("");
     try {
       await actions.current.action(
@@ -154,11 +160,11 @@ export default function ExamDiagnostics({
     } catch (err) {
       if (alive.current) setError(err.message);
     } finally {
-      if (alive.current) setBusy(false);
+      if (alive.current) setBusy("");
     }
   }
   async function patch(questionId, changes) {
-    setBusy(true);
+    setBusy("patch");
     try {
       await actions.current.patch(
         root,
@@ -168,13 +174,39 @@ export default function ExamDiagnostics({
         accept,
       );
     } finally {
-      if (alive.current) setBusy(false);
+      if (alive.current) setBusy("");
+    }
+  }
+  async function remove() {
+    const target = pendingDelete;
+    setBusy("delete");
+    setError("");
+    reads.current.invalidate();
+    try {
+      await actions.current.remove(root, target, async () => {
+        if (!alive.current) return;
+        setRows((old) => old.filter((row) => row.id !== target.id));
+        setSelected((old) => (old?.id === target.id ? null : old));
+        setPendingDelete(null);
+        setConsent(false);
+        try {
+          await history();
+          if (target.status === "completed") await onStateChanged();
+        } catch (err) {
+          if (alive.current)
+            setError("诊断已删除，但页面刷新失败：" + err.message);
+        }
+      });
+    } catch (err) {
+      if (alive.current) setError(err.message);
+    } finally {
+      if (alive.current) setBusy("");
     }
   }
   return (
     <>
       <div className="page-title">
-        <span className="eyebrow">LEARN FROM EVERY EXAM</span>
+        <span className="eyebrow">逐题诊断 · 发现薄弱 · 定向巩固</span>
         <h1>成绩诊断</h1>
         <p>上传老师批改好的试卷，看清知识薄弱处，让下一步学习有据可依。</p>
       </div>
@@ -188,19 +220,21 @@ export default function ExamDiagnostics({
           <ExamUpload
             capabilities={capabilities}
             onUpload={upload}
-            busy={busy}
+            busy={!!busy}
+            uploading={busy === "upload"}
           />
           <section className="card">
             <div className="exam-question-heading">
               <h3>诊断历史</h3>
-              <button
+              <ActionButton
+                loadingText="正在刷新诊断历史…"
                 className="icon-button"
                 type="button"
                 aria-label="刷新诊断历史"
                 onClick={() => history().catch((e) => setError(e.message))}
               >
                 <RefreshCw size={16} />
-              </button>
+              </ActionButton>
             </div>
             {loading ? (
               <p className="muted">读取历史记录…</p>
@@ -209,29 +243,49 @@ export default function ExamDiagnostics({
             ) : (
               <div className="exam-history">
                 {rows.map((row) => (
-                  <button
-                    key={row.id}
-                    className={selected?.id === row.id ? "active" : ""}
-                    onClick={() => select(row)}
-                  >
-                    <span>{row.name}</span>
-                    <small>
-                      {statuses[row.status] || row.status} ·{" "}
-                      {new Date(row.created_at).toLocaleDateString()}
-                    </small>
-                  </button>
+                  <div className="exam-history-item" key={row.id}>
+                    <ActionButton
+                      loadingText="正在读取诊断报告…"
+                      className={
+                        "exam-history-select " +
+                        (selected?.id === row.id ? "active" : "")
+                      }
+                      disabled={busy}
+                      onClick={() => select(row)}
+                    >
+                      <span>{row.name}</span>
+                      <small>
+                        {statuses[row.status] || row.status} ·{" "}
+                        {new Date(row.created_at).toLocaleDateString()}
+                      </small>
+                    </ActionButton>
+                    <button
+                      className="icon-button exam-history-delete"
+                      type="button"
+                      aria-label={"删除诊断：" + row.name}
+                      title="删除诊断"
+                      disabled={busy}
+                      onClick={() => {
+                        setError("");
+                        setPendingDelete(row);
+                      }}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
             {cursor && (
-              <button
+              <ActionButton
+                loadingText="正在读取历史记录…"
                 disabled={busy}
                 onClick={() =>
                   history(cursor).catch((e) => setError(e.message))
                 }
               >
                 加载更早记录
-              </button>
+              </ActionButton>
             )}
           </section>
         </aside>
@@ -258,9 +312,13 @@ export default function ExamDiagnostics({
               {selected.cleanup_warning && (
                 <div className="card">
                   <p className="hint">{selected.cleanup_warning}</p>
-                  <button disabled={busy} onClick={() => mutate("retry")}>
+                  <ActionButton
+                    loadingText="正在重试清理…"
+                    disabled={busy}
+                    onClick={() => mutate("retry")}
+                  >
                     重试远端清理
-                  </button>
+                  </ActionButton>
                 </div>
               )}
             </>
@@ -279,9 +337,13 @@ export default function ExamDiagnostics({
                   <p className="muted">
                     任务已保存，可以离开页面后再回来查看。清晰的批改结果会在报告发布时更新学习状态。
                   </p>
-                  <button disabled={busy} onClick={() => mutate("cancel")}>
+                  <ActionButton
+                    loadingText="正在取消诊断…"
+                    disabled={busy}
+                    onClick={() => mutate("cancel")}
+                  >
                     取消本次处理
-                  </button>
+                  </ActionButton>
                 </>
               ) : (
                 <>
@@ -308,7 +370,8 @@ export default function ExamDiagnostics({
                         />
                         同意本次由当前用户模型处理试卷，知悉费用及远端保留政策。
                       </label>
-                      <button
+                      <ActionButton
+                        loadingText="正在提交诊断任务…"
                         className="primary"
                         disabled={busy || !consent}
                         onClick={() =>
@@ -318,16 +381,17 @@ export default function ExamDiagnostics({
                         }
                       >
                         {selected.status === "draft" ? "开始诊断" : "重试处理"}
-                      </button>
+                      </ActionButton>
                     </>
                   )}
                   {selected.status === "draft" && (
-                    <button
+                    <ActionButton
+                      loadingText="正在丢弃草稿…"
                       disabled={busy}
                       onClick={() => mutate("draft", "DELETE")}
                     >
                       丢弃草稿
-                    </button>
+                    </ActionButton>
                   )}
                   <p className="small muted">
                     尚未发布成功报告时，不会增加有效学习证据。
@@ -338,6 +402,55 @@ export default function ExamDiagnostics({
           )}
         </div>
       </div>
+      {pendingDelete && (
+        <div
+          className="modal-backdrop"
+          onClick={() => {
+            if (!busy) setPendingDelete(null);
+          }}
+        >
+          <div
+            className="modal"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-exam-title"
+            aria-describedby="delete-exam-description"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && !busy) setPendingDelete(null);
+            }}
+          >
+            <h2 id="delete-exam-title">删除这份诊断？</h2>
+            <p>{pendingDelete.name}</p>
+            <p id="delete-exam-description" className="muted">
+              报告和本地试卷附件将删除，无法恢复。正在处理的任务将停止后续处理，远端文件将进入清理队列。
+              已完成诊断导入的学习证据会撤回，并重新计算知识状态与学习计划。
+            </p>
+            {error && (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="button-row">
+              <button
+                ref={cancelDeleteButton}
+                disabled={busy}
+                onClick={() => setPendingDelete(null)}
+              >
+                保留诊断
+              </button>
+              <ActionButton
+                loadingText="正在删除诊断…"
+                className="danger"
+                disabled={busy}
+                onClick={remove}
+              >
+                {busy ? "正在删除…" : "确认删除"}
+              </ActionButton>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

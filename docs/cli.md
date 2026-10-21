@@ -145,3 +145,47 @@ study-agent material remove MATERIAL_ID
 ```
 
 `job show/run/wait/cancel/retry` 返回状态对象。wait 查询到 failed/cancelled 也会返回 JSON 状态，不把“查询成功”冒充“任务成功”；脚本须检查 `status == "succeeded"`。`--json`、`--server` 等全局选项必须放在主命令前。下载不覆盖已有文件；仅上传／重索引需要逐次 `--accept-file-transfer`，可选 `--embeddings` 表示额外授权远端向量生成。完整端点要求、恢复与清理说明见 [M2 使用文档](m2-materials.md)。
+
+## 阶段三：复习、报告与算法版本
+
+所有空间统一运行原生 BKT＋FSRS。CLI 与 Web 共用后端，CLI 不计算概率或日期。先用 `study-agent review list` 查看 due／upcoming／unassessed，再用 `study-agent review start --concept CONCEPT_ID --request-id review-001` 开始或恢复；交互课堂可答题，也可用 `study-agent review submit REVIEW_ID --item ITEM_ID --answer A --rating good --request-id answer-001`。评分支持 again、hard、good、easy；提示或答错只能 again。`learn` 遇到 REVIEW 会进入同一复习会话。
+
+`study-agent algorithms` 查看必启算法与实际参数版本；`study-agent report --days 7`（或 30）查看状态变化、近期错误、复习保持率和任务完成率。所有命令支持 `--space SPACE_ID` 和主命令前的 `--json`。Web 对应「复习」「学习报告」；空报告显示证据不足，不伪造百分比。退出重登与刷新保留已提交数据。默认参数未针对真实用户校准。部署、离线校准与维护参见 [阶段三说明](m3-adaptive-learning.md)。
+
+### M4：每日任务、站内消息与自然周报
+
+Web 和 CLI 使用同一组 HTTP API、同一数据库和登录账号；CLI 不在本地另算计划。
+
+```bash
+study-agent today                       # 只读取，尚未生成时返回原因
+study-agent today --refresh             # 用现有数据生成／协调今日任务，不调用模型
+study-agent task list
+study-agent task start TASK_ID --request-id start-001
+study-agent task complete TASK_ID       # 必须已有真实阅读／答题证据
+study-agent task skip TASK_ID
+study-agent task postpone TASK_ID       # 服务端计算下一个当地日期
+study-agent suggestion list
+study-agent suggestion accept SUGGESTION_ID
+study-agent suggestion skip SUGGESTION_ID
+study-agent inbox list --limit 30
+study-agent inbox read MESSAGE_ID
+study-agent weekly current              # 本周预览，不调用模型
+study-agent weekly refresh              # 保存上一完整自然周，不调用模型
+study-agent weekly list --limit 30
+study-agent weekly show SUMMARY_ID
+study-agent activity-jobs list
+study-agent activity-jobs retry JOB_ID   # 仅失败终止任务
+study-agent analysis-usage              # 本账号 UTC 日的 M4 分析配额
+```
+
+只有明确执行以下命令才请求一次 AI 分析（使用该空间已配置的模型，可能产生费用）。幂等键在超时后重试时应保持不变；失败后主动发起新尝试须使用新键，并用 `--retry-of` 指向原分析。
+
+```bash
+study-agent analyze --source daily_plan --source-id PLAN_ID --request-id analysis-001
+study-agent analyze --source weekly_summary --source-id SUMMARY_ID --request-id analysis-002
+study-agent analysis list
+study-agent analysis show ANALYSIS_ID
+study-agent analyze --source weekly_summary --source-id SUMMARY_ID --retry-of ANALYSIS_ID --request-id analysis-003
+```
+
+空间命令支持 `--space SPACE_ID`；省略时沿用 `space use` 的选择。消息、后台任务和配额属于当前账号，无需选择空间。`inbox list`、`weekly list`、`analysis list`、`activity-jobs list` 支持 `--limit` 和 `--cursor`，JSON 输出含 `next_cursor`。所有命令可在命令前添加全局 `--json`；本地 CLI 配置只保存会话与空间选择，学习记录仍在服务端数据库中。

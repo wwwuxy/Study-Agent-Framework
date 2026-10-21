@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -76,6 +77,30 @@ def test_upload_requires_explicit_consent_and_verified_file_capability(client):
     sid = space(client, provider(client))
     response = upload(client, sid)
     assert response.status_code == 422 and response.json()["error"]["code"] == "capability_not_supported"
+
+
+def test_upload_enforces_instance_limit_and_publishes_config_to_web(client, settings, monkeypatch):
+    monkeypatch.setattr(settings, "material_max_bytes", 1_073_741_824)
+    assert client.get("/api/v1/config").json()["material_max_bytes"] == 1_073_741_824
+    _, sid = configure(client)
+    sample = make_probe_pdf("SIZE_BOUNDARY") + b"\n" * 1024
+    monkeypatch.setattr(settings, "material_max_bytes", len(sample))
+    headers = {
+        "Content-Type": "application/pdf",
+        "X-Filename": "book.pdf",
+        "X-File-Consent": "true",
+        "Idempotency-Key": "boundary-accepted",
+    }
+    root = f"/api/v1/study-spaces/{sid}/materials"
+    assert client.post(root, content=sample, headers=headers).status_code == 202
+    rejected = client.post(
+        root,
+        content=sample + b"\n",
+        headers={**headers, "Idempotency-Key": "boundary-rejected"},
+    )
+    assert rejected.status_code == 413
+    assert rejected.json()["error"]["code"] == "file_too_large"
+    assert len(client.get(root).json()) == 1
 
 
 def test_material_pipeline_search_citations_and_delete(client):
@@ -371,9 +396,9 @@ def test_delete_at_final_publication_cannot_resurrect_index(client, monkeypatch)
     original = jobs.config_for
     deleted = False
 
-    def concurrent_delete(db, current_asset):
+    def concurrent_delete(db, current_asset, lock=False):
         nonlocal deleted
-        config = original(db, current_asset)
+        config = original(db, current_asset, lock=lock)
         current_job = db.get(MaterialJob, asset["job_id"])
         if current_job.data.get("sections") and not deleted:
             deleted = True
@@ -456,7 +481,7 @@ def test_material_publication_updates_saved_plan_for_new_concepts(client):
                         "misconceptions": [],
                     },
                 )
-        rebuild_states(db, current_space)
+        asyncio.run(rebuild_states(db, current_space))
         save_plan(db, current_space)
         db.commit()
     assert client.get(root + "/plan").json()["next_action"]["action"] == "ASSESS"
@@ -613,7 +638,7 @@ def test_publication_does_not_overwrite_concurrent_answer(client, monkeypatch, s
                     "misconceptions": [],
                 },
             )
-            orchestrator.rebuild_states(other, space)
+            asyncio.run(orchestrator.rebuild_states(other, space))
             orchestrator.save_plan(other, space)
             other.commit()
             committed.set()

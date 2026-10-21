@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/readme-stack.svg" alt="Python 3.12+ · FastAPI · React 19 · CLI + Web · BYOK · M1 + M2" width="780" />
+  <img src="docs/assets/readme-stack.svg" alt="Python 3.12+ · FastAPI · React 19 · CLI + Web · BYOK · M1 + M2 + M3 + M4" width="780" />
 </p>
 
 <p align="center">
@@ -42,11 +42,27 @@ Connect your own model, set a learning goal, take a diagnostic, study explanatio
 | 📈 | **Progress based on evidence** | Estimate knowledge state from actual answers, record assistance, and explain the next recommendation |
 | 💻 | **CLI and Web together** | Interactive practice, JSON output, persistent sessions, progress recovery, and separate learning spaces |
 
-> **Current status:** M1 learning-loop and M2 private-material functionality is implemented. Real BYOK textbook samples, native pgvector, and Docker deployment still need validation in the target environment. M3 and M4 are not implemented. [Validation record, in Chinese](docs/acceptance.md)
+> **Current status:** M1 learning-loop and M2 private-material functionality is implemented. Real BYOK textbook samples, native pgvector, and Docker deployment still need validation in the target environment. M3 now provides mandatory native pyBKT + py-fsrs, due reviews, 7/30-day reports and offline calibration. Real educational effectiveness remains unvalidated; M4 adds daily tasks, in-app messages, weekly snapshots, explicit AI analysis with quotas, and standalone login/register pages. Accounts have isolated data; background coordination never calls the LLM. [Validation record, in Chinese](docs/acceptance.md)
 
 <a id="preview"></a>
 
 ## Screenshots
+
+### Models, spaces and operations in one place
+
+Models & Settings groups model connections, study spaces and background operations. Learning Reports groups rolling statistics and natural-week summaries.
+
+![Unified models and settings](docs/assets/settings-tabs.jpg)
+
+### Daily tasks and weekly summaries
+
+Background coordination uses existing evidence without model calls. AI analysis is explicitly requested; login and registration pages isolate each account's data.
+
+![M4 daily workbench](docs/assets/m4-daily.jpg)
+![Natural-week report](docs/assets/m4-weekly.jpg)
+
+[Configuration and guide (Chinese)](docs/m4-active-learning.md). Reminder settings and a new authorization/data-control module are excluded by user request.
+
 
 ### Material retrieval: trace content back to its source
 
@@ -54,13 +70,21 @@ Results include the source document and chapter, with an original download for v
 
 ![Private-material keyword retrieval with chapter summaries and source citations](docs/assets/m2-library.png)
 
-### Knowledge map: updated automatically after upload
+### Knowledge mind map: explore connected concepts
 
-When processing completes, new concepts appear in the database and knowledge map. **They remain undiagnosed: uploading or reading does not directly increase mastery.**
+The interactive mind map connects your learning goal to individual concepts. Solid lines show the main branches; dashed arrows retain additional prerequisite links. Select a node to inspect objectives, prerequisites, and evidence. Drag, zoom, fit the canvas, or use the concept selector to navigate; touch gestures are supported on mobile.
 
-![A newly uploaded concept appears in the knowledge map and remains undiagnosed](docs/assets/auto-upload-database.png)
+When upload processing completes, new concepts appear automatically in the database and mind map. **They remain undiagnosed: uploading or reading does not directly increase mastery.**
+
+![Knowledge mind map with prerequisite links and concept details](docs/assets/knowledge-mind-map.jpg)
 
 <sub>These are actual local UI screenshots from isolated demo accounts using explicitly labeled fixed fixtures. They do not prove that a real provider has understood a textbook. The Web UI is currently primarily Chinese; this English README does not imply an English UI translation.</sub>
+
+### Learning reports: progress backed by evidence
+
+![Learning report and mandatory algorithm status](docs/assets/m3-report.png)
+
+<sub>Disposable demonstration account with fixed examples; parameters are uncalibrated for real learners.</sub>
 
 ## The learning loop
 
@@ -68,7 +92,7 @@ When processing completes, new concepts appear in the database and knowledge map
 
 - **Without materials:** your model generates candidate curricula and teaching content, marked as unverified.
 - **With materials:** retrieve your evidence first. By default, insufficient evidence blocks new teaching; general-knowledge supplementation requires a separate opt-in.
-- **With practice:** save answers as learning evidence, then update state and plans through rules. Reading receipts and mastery evidence are handled separately.
+- **With practice:** save answers as learning evidence, then update knowledge with pyBKT and memory schedules with py-fsrs. Reading receipts and mastery evidence are handled separately.
 
 <a id="quick-start"></a>
 
@@ -233,6 +257,39 @@ Only actually verified PDF input is enabled; DOCX and EPUB are not supported. Fi
 
 </details>
 
+## Adaptive learning with BKT and FSRS
+
+![BKT, FSRS and the shared learning loop](docs/assets/m3-adaptive.svg)
+
+Every space uses **pyBKT 1.4.3** for skill estimation and **py-fsrs 6.3.2 / FSRS-6** for memory scheduling. There is no per-space switch or legacy fallback. Web and CLI share the same review sessions, evidence, cards and plans.
+
+```bash
+study-agent algorithms
+study-agent review list
+study-agent review start --concept CONCEPT_ID --request-id review-001
+study-agent review submit REVIEW_ID --item ITEM_ID --answer 'A' --rating good --request-id answer-001
+study-agent report --days 7
+study-agent --json report --days 30
+```
+
+Independent correct answers default to Good, with Hard/Easy available. Incorrect or hinted answers require Again; the server enforces this. Unassessed cards are separate from overdue reviews. Reading and uncertain grading do not establish mastery.
+
+Native BKT EM and the official FSRS optimizer were actually exercised in an isolated environment with our own synthetic data. Default parameters remain uncalibrated for real learners. These results do not establish educational improvement. See the [M3 guide](docs/m3-adaptive-learning.md) and [evaluation record](docs/m3-evaluation.md), in Chinese.
+
+## Change your learning plan through chat
+
+Open **学习对话 (Learning chat)** in the Web sidebar, or use the plan adjustment entry in the overview/classroom. For example:
+
+> Change my daily budget to 15 minutes, prioritize process scheduling, and use interview-style examples.
+
+Clear instructions **apply automatically**, with a before/after change card. Ambiguous requests trigger clarification. Adjust goals, dates, priorities or teaching preferences, and add concepts while retaining existing evidence. The current model generates the roadmap; BKT, FSRS and prerequisites still determine the executable next step.
+
+![Planning chat, change cards and paused lessons](docs/assets/planning-chat.jpg)
+
+Conversations and versioned intent persist across restarts. Existing CLI `plan`, `next` and `learn` commands share the updates. Paused lessons retain their original questions; chat never grants mastery or changes existing FSRS cards. BYOK calls may incur provider charges. Replies and plan updates are published together after validation. The screenshot uses a disposable account and fixed demonstration data, not a real provider quality assessment.
+
+[Chat usage and recovery guide, in Chinese](docs/planning-chat.md)
+
 ## Everyday commands
 
 | Task | Command |
@@ -264,7 +321,7 @@ See [`.env.example`](.env.example) for the complete template. Detailed deploymen
 - **Originals and indexes are separate:** private local storage holds originals; the database holds metadata, chapters, and learning records. Back up the database, material directory, and corresponding encryption key.
 - **Your provider processes your data:** goals, answers, and authorized files are sent to the remote service you choose; calls may incur charges.
 - **Access is scoped by user and space:** CLI state stores sessions and space selection. Provider keys are encrypted in the backend.
-- **Generated content remains unverified:** curricula, summaries, and model grading are not authoritative validation. The current rule-based estimates have not been psychometrically calibrated.
+- **Generated content remains unverified:** curricula, summaries, and model grading are not authoritative validation. The current model estimates have not been psychometrically calibrated.
 
 ## Development and validation
 
@@ -285,8 +342,8 @@ Existing validation covers background ingestion, restart recovery, source isolat
 |---|---|---|
 | **M1 · Learning loop** | Implemented | BYOK, goals, diagnostics, lessons, practice, evidence, plans, and CLI |
 | **M2 · Private materials** | Code implemented; some deployment validation pending | Native PDFs, automatic ingestion, durable jobs, retrieval, citations, and deletion |
-| **M3 · Adaptive learning** | Not implemented | BKT, spaced repetition, learning reports, and quality evaluation |
-| **M4 · Proactive support** | Not implemented | Opt-in scheduling, reminders, and budget controls |
+| **M3 · Adaptive learning** | Implemented; educational effectiveness unvalidated | Native BKT + FSRS, due reviews, reports and offline evaluation |
+| **M4 · Proactive support** | Implemented; see engineering validation | Daily tasks, due reviews, plan suggestions, weekly summaries, explicit analysis quotas and account isolation |
 
 <a id="documentation"></a>
 
@@ -306,3 +363,7 @@ The main READMEs are available in Chinese and English. The detailed guides below
 ---
 
 <p align="center"><strong>Start with a goal. Let evidence guide the way.</strong><br /><a href="README.md">阅读中文版 →</a></p>
+
+## Graded exam diagnostics
+
+The Web sidebar includes **成绩诊断** (Exam diagnostics). Upload a teacher-graded PDF or multiple JPG/PNG pages; your configured model extracts marks and produces a report. Reliable single-concept results update knowledge state and the next learning action. Ambiguous and partial results remain reviewable. Imported exams do not reset FSRS review dates. [Workflow and limitations (Chinese)](docs/exam-diagnostics.md).

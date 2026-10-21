@@ -36,6 +36,8 @@ def settings(tmp_path):
         cookie_secure=False,
         material_storage_dir=str(tmp_path / "materials"),
         material_worker_enabled=False,
+        exam_worker_enabled=False,
+        m4_worker_enabled=False,
     )
     if admin:
         with admin.begin() as db:

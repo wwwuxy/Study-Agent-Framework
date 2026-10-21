@@ -1,4 +1,3 @@
-import hashlib
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, Request
@@ -12,7 +11,7 @@ from app.db.models import MaterialAsset, MaterialJob, MaterialSection, new_id
 from app.jobs.materials import detach_sources, run_job
 from app.knowledge.materials import fingerprint, new_job, own_asset, public_job, source_row
 from app.knowledge.retrieval import retrieve
-from app.knowledge.storage import MaterialStorage, validate_pdf
+from app.knowledge.storage import MaterialStorage
 from app.providers.base import CapabilityNotSupported, ProviderError
 from app.schemas.api import IdempotentRequest
 from app.schemas.materials import MaterialRetry, MaterialSearch
@@ -121,52 +120,46 @@ async def upload(space_id: str, request: Request, db=Depends(get_db), user=Depen
         raise ProviderError("invalid_idempotency_key", "上传必须携带有效的 Idempotency-Key", 422) from None
 
     limit = request.app.state.settings.material_max_bytes
-    chunks, size = [], 0
-    async for chunk in request.stream():
-        size += len(chunk)
-        if size > limit:
-            raise ProviderError("file_too_large", "资料超过实例大小上限", 413)
-        chunks.append(chunk)
-    data = b"".join(chunks)
+    declared = request.headers.get("content-length", "")
+    if declared.isdecimal() and int(declared) > limit:
+        raise ProviderError("file_too_large", "资料超过实例大小上限", 413)
     filename = unquote(request.headers.get("x-filename", ""))
     mime = request.headers.get("content-type", "").split(";")[0]
-    validate_pdf(filename, mime, data, limit)
-    sha = hashlib.sha256(data).hexdigest()
-    request_hash = digest([filename, mime, sha, embeddings])
-    existing = db.scalar(
-        select(MaterialAsset).where(MaterialAsset.space_id == space.id, MaterialAsset.upload_key == key)
-    )
-    if existing:
-        if existing.request_digest != request_hash:
-            raise ProviderError("idempotency_conflict", "同一上传键不能用于不同文件或配置", 409)
-        if existing.status in {"deleted", "deleting"}:
-            raise ProviderError("material_deleted", "资料已删除，请使用新的上传键", 409)
-        return public_asset(db, existing)
-    asset = MaterialAsset(
-        id=new_id(),
-        user_id=user.id,
-        space_id=space.id,
-        provider_id=config.id,
-        provider_fingerprint=fingerprint(config),
-        upload_key=key,
-        request_digest=request_hash,
-        filename=filename,
-        mime_type=mime,
-        size_bytes=len(data),
-        sha256=sha,
-        use_embeddings=embeddings,
-    )
-    db.add(asset)
-    db.flush()
     storage = MaterialStorage(request.app.state.settings.material_storage_dir)
-    storage.save(user.id, space.id, asset.id, data)
-    try:
+    asset_id = new_id()
+    with storage.stage(user.id, space.id, asset_id, filename, mime, limit) as staged:
+        await staged.receive(request.stream())
+        request_hash = digest([filename, mime, staged.sha256, embeddings])
+        existing = db.scalar(
+            select(MaterialAsset).where(MaterialAsset.space_id == space.id, MaterialAsset.upload_key == key)
+        )
+        if existing:
+            if existing.request_digest != request_hash:
+                raise ProviderError("idempotency_conflict", "同一上传键不能用于不同文件或配置", 409)
+            if existing.status in {"deleted", "deleting"}:
+                raise ProviderError("material_deleted", "资料已删除，请使用新的上传键", 409)
+            return public_asset(db, existing)
+        asset = MaterialAsset(
+            id=asset_id,
+            user_id=user.id,
+            space_id=space.id,
+            provider_id=config.id,
+            provider_fingerprint=fingerprint(config),
+            upload_key=key,
+            request_digest=request_hash,
+            filename=filename,
+            mime_type=mime,
+            size_bytes=staged.size_bytes,
+            sha256=staged.sha256,
+            use_embeddings=embeddings,
+        )
+        db.add(asset)
+        db.flush()
+        staged.publish()
         new_job(db, asset, "upload_" + key)
         db.commit()
-    except BaseException:
-        storage.delete(user.id, space.id, asset.id)
-        raise
-    return public_asset(db, asset)
+        staged.keep()
+        return public_asset(db, asset)
 
 
 @router.get("/study-spaces/{space_id}/materials")
@@ -257,9 +250,10 @@ async def delete_material(
     asset.generation += 1
     asset.status = "deleting"
     for job in db.scalars(select(MaterialJob).where(MaterialJob.asset_id == asset.id)).all():
+        origin = job.data.get("_upload_provider_id")
         if job.status in {"queued", "running", "failed"}:
             job.status = "cancelled"
-        job.data = {}
+        job.data = {"_upload_provider_id": origin} if origin and job.lease_until else {}
     ids = db.scalars(select(MaterialSection.id).where(MaterialSection.asset_id == asset.id)).all()
     detach_sources(db, space_id, ids)
     db.execute(delete(MaterialSection).where(MaterialSection.asset_id == asset.id))
@@ -273,6 +267,8 @@ def own_job(db, user_id, job_id):
     job = db.scalar(select(MaterialJob).where(MaterialJob.id == job_id, MaterialJob.user_id == user_id))
     if not job:
         raise ProviderError("not_found", "任务不存在", 404)
+    if job.kind == "index":
+        own_space(db, user_id, job.space_id)
     return job
 
 

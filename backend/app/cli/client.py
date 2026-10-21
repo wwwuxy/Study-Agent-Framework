@@ -1,3 +1,4 @@
+import os
 from http.cookiejar import Cookie
 from urllib.parse import quote, urlsplit, urlunsplit
 
@@ -107,6 +108,9 @@ class APIClient:
             raise CLIError(
                 "connection_failed", "无法连接 StudyAgent 服务。请先运行 scripts/serve.sh，或检查 --server。"
             ) from None
+        return self._response_data(response, binary=binary)
+
+    def _response_data(self, response, *, binary=False):
         if response.status_code == 401:
             self.clear_session()
         if response.status_code == 204:
@@ -127,6 +131,32 @@ class APIClient:
                 message if isinstance(message, str) else f"请求失败（HTTP {response.status_code}）。",
             )
         return data
+
+    def download(self, path, output):
+        created = False
+        completed = False
+        try:
+            with self.http.stream("GET", self.server + "/api/v1" + path) as response:
+                if not response.is_success:
+                    response.read()
+                    self._response_data(response)
+                try:
+                    fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                except FileExistsError:
+                    raise CLIError("output_exists", "下载路径已存在，请选择新的 --output。", 2) from None
+                created = True
+                with os.fdopen(fd, "wb") as target:
+                    for chunk in response.iter_bytes(chunk_size=65536):
+                        target.write(chunk)
+                        target.flush()
+            completed = True
+        except httpx.TimeoutException:
+            raise CLIError("request_timeout", "下载超时，不完整文件已清理，可重试。") from None
+        except httpx.RequestError:
+            raise CLIError("connection_failed", "下载连接中断，不完整文件已清理，可重试。") from None
+        finally:
+            if created and not completed:
+                output.unlink(missing_ok=True)
 
     def active_space(self, explicit=None):
         space_id = explicit or self.state.get("active_space")

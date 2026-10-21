@@ -102,3 +102,63 @@ async def test_file_probe_requires_actual_random_content_and_cleans_up(read_corr
     assert caps["chat"] is True and caps["file_input"] is read_correctly
     assert caps["supported_mime_types"] == (["application/pdf"] if read_correctly else [])
     assert len(deleted) == 1 and caps["locator_verified"] is False
+
+
+@pytest.mark.asyncio
+async def test_native_multipart_streams_bounded_reads_and_replays_from_start_on_retry(tmp_path):
+    import hashlib
+
+    payload = b"%PDF-" + b"z" * (200 * 1024) + b"%%EOF"
+    path = tmp_path / "book.pdf"
+    path.write_bytes(payload)
+    reads, attempts = [], []
+
+    class BoundedReader:
+        def __init__(self, file):
+            self.file = file
+
+        def read(self, size=-1):
+            assert 0 < size <= 65536, "multipart must never request the whole file"
+            reads.append(size)
+            return self.file.read(size)
+
+        def seek(self, *args):
+            return self.file.seek(*args)
+
+        def tell(self):
+            return self.file.tell()
+
+        def fileno(self):
+            return self.file.fileno()
+
+    class Sink(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            assert request.headers["host"] == "example.com"
+            size, remaining, checksum = 0, len(payload), hashlib.sha256()
+            in_file = False
+            async for chunk in request.stream:
+                assert len(chunk) <= 65536
+                size += len(chunk)
+                if b'name="file"' in chunk:
+                    in_file = True
+                    continue
+                if in_file and remaining:
+                    data = chunk[:remaining]
+                    checksum.update(data)
+                    remaining -= len(data)
+            assert remaining == 0
+            assert checksum.hexdigest() == hashlib.sha256(payload).hexdigest()
+            assert size == int(request.headers["content-length"])
+            attempts.append((size, checksum.hexdigest()))
+            return httpx.Response(503 if len(attempts) == 1 else 200, json={"id": "file-streamed"})
+
+    async def resolver(host, port):
+        return ["8.8.8.8"]
+
+    adapter = NativeFileAdapter(
+        "https://example.com/v1", "key", "model", retries=1, resolver=resolver, transport=Sink()
+    )
+    with path.open("rb") as file:
+        assert await adapter.upload_file(BoundedReader(file), "book.pdf") == "file-streamed"
+    assert len(reads) > 2 and len(attempts) == 2
+    assert attempts[0] == attempts[1]

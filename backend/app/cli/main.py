@@ -6,13 +6,14 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from app.cli.client import APIClient, segment
 from app.cli.errors import CLIError
 from app.cli.interactive import classroom, practice
 from app.cli.render import human_output, safe_text
 from app.cli.state import StateStore, default_config_dir
+from app.core.settings import MAX_MATERIAL_BYTES
 
 
 def build_parser():
@@ -119,6 +120,57 @@ def build_parser():
         if action == "wait":
             command.add_argument("--seconds", type=int, default=180)
 
+    review = groups.add_parser("review", help="FSRS 复习").add_subparsers(dest="action", required=True)
+    for action in ("list", "start", "submit"):
+        command = review.add_parser(action)
+        command.add_argument("--space")
+        if action == "start":
+            command.add_argument("--concept", required=True)
+        if action == "submit":
+            command.add_argument("id")
+            command.add_argument("--item", required=True)
+            command.add_argument("--answer")
+            command.add_argument("--rating", choices=["again", "hard", "good", "easy"])
+        if action != "list":
+            command.add_argument("--request-id")
+    report = groups.add_parser("report", help="学习报告")
+    report.add_argument("--days", type=int, choices=[7, 30], default=7)
+    report.add_argument("--space")
+    algorithms = groups.add_parser("algorithms", help="查看统一启用的 BKT 与 FSRS")
+    algorithms.add_argument("--space")
+
+    today = groups.add_parser("today", help="今日任务（读取不调用模型）")
+    today.add_argument("--space")
+    today.add_argument("--refresh", action="store_true")
+    today.add_argument("--request-id")
+    for group, actions in {
+        "task": ("list", "start", "complete", "skip", "postpone"),
+        "suggestion": ("list", "accept", "skip"),
+        "inbox": ("list", "read"),
+        "weekly": ("list", "show", "current", "refresh"),
+        "analysis": ("list", "show"),
+        "activity-jobs": ("list", "retry"),
+    }.items():
+        commands = groups.add_parser(group).add_subparsers(dest="action", required=True)
+        for action in actions:
+            command = commands.add_parser(action)
+            if group not in {"inbox", "activity-jobs"}:
+                command.add_argument("--space")
+            if action not in {"list", "current", "refresh"}:
+                command.add_argument("id")
+            if action not in {"list", "show", "current"}:
+                command.add_argument("--request-id")
+            if action == "list" and group in {"inbox", "weekly", "analysis", "activity-jobs"}:
+                command.add_argument("--cursor")
+                command.add_argument("--limit", type=int, default=30)
+    analyze = groups.add_parser("analyze", help="明确请求一次 AI 分析，可能产生费用")
+    analyze.add_argument("--source", choices=["daily_plan", "weekly_summary"], required=True)
+    analyze.add_argument("--source-id", required=True)
+    analyze.add_argument("--retry-of")
+    analyze.add_argument("--request-id")
+    analyze.add_argument("--space")
+    groups.add_parser("analysis-usage", help="本账号每日 AI 分析额度（按 UTC 日期重置）")
+
     for name, help_text in (
         ("progress", "知识掌握状态与证据"),
         ("next", "下一步推荐及理由"),
@@ -176,6 +228,13 @@ def require_consent(args):
             "模型调用会将目标、上下文和答案发送至所选第三方，并可能产生费用；请明确添加 --accept-data-transfer。",
             2,
         )
+
+
+def page_query(args):
+    values = {"limit": args.limit}
+    if args.cursor:
+        values["cursor"] = args.cursor
+    return "?" + urlencode(values)
 
 
 def execute(args, client, prompt, secret_prompt, interactive, emit):
@@ -309,20 +368,22 @@ def execute(args, client, prompt, secret_prompt, interactive, emit):
         if args.action == "search":
             return client.request("POST", root + "/search", {"query": args.query, "mode": args.mode})
         if args.action == "upload":
-            if args.file.stat().st_size > 48 * 1024 * 1024:
-                raise CLIError("file_too_large", "上传文件不能超过 48 MiB；实例可设置更小上限。", 2)
-            return client.request(
-                "POST",
-                root,
-                content=args.file.read_bytes(),
-                headers={
-                    "Content-Type": "application/pdf",
-                    "X-Filename": quote(args.file.name, safe=""),
-                    "X-File-Consent": "true",
-                    "X-Use-Embeddings": str(args.embeddings).lower(),
-                    "Idempotency-Key": new_request_key(args),
-                },
-            )
+            if args.file.stat().st_size > MAX_MATERIAL_BYTES:
+                raise CLIError("file_too_large", "上传文件不能超过 1024 MiB；实例可设置更小上限。", 2)
+            with args.file.open("rb") as source:
+                return client.request(
+                    "POST",
+                    root,
+                    content=source,
+                    headers={
+                        "Content-Type": "application/pdf",
+                        "Content-Length": str(os.fstat(source.fileno()).st_size),
+                        "X-Filename": quote(args.file.name, safe=""),
+                        "X-File-Consent": "true",
+                        "X-Use-Embeddings": str(args.embeddings).lower(),
+                        "Idempotency-Key": new_request_key(args),
+                    },
+                )
         path = root + "/" + segment(args.id)
         if args.action == "reindex":
             return client.request(
@@ -338,14 +399,90 @@ def execute(args, client, prompt, secret_prompt, interactive, emit):
             # Never overwrite an existing local file; downloaded originals remain private.
             if args.output.exists():
                 raise CLIError("output_exists", "下载路径已存在，请选择新的 --output。", 2)
-            data = client.request("GET", path + "/download", binary=True)
-            fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "wb") as target:
-                target.write(data)
+            client.download(path + "/download", args.output)
             return {"message": "原始文件已下载至 " + str(args.output)}
         return client.request("DELETE" if args.action == "remove" else "GET", path)
 
+    if args.command == "analysis-usage":
+        return client.request("GET", "/analysis-usage")
+    if args.command in {"inbox", "activity-jobs"}:
+        path = "/" + args.command
+        if args.action == "list":
+            return client.request("GET", path + page_query(args))
+        return client.request(
+            "POST",
+            path + "/" + segment(args.id) + "/" + args.action,
+            {"idempotency_key": new_request_key(args)},
+        )
+
     root = client.active_space(args.space)
+    if args.command == "today":
+        if args.refresh:
+            return client.request(
+                "POST", root + "/daily-plans/refresh", {"idempotency_key": new_request_key(args)}
+            )
+        return client.request("GET", root + "/daily-plans/today")
+    if args.command in {"task", "suggestion", "weekly", "analysis"}:
+        path = (
+            root
+            + {
+                "task": "/tasks",
+                "suggestion": "/suggestions",
+                "weekly": "/weekly-summaries",
+                "analysis": "/analyses",
+            }[args.command]
+        )
+        if args.action == "list":
+            return client.request("GET", path + (page_query(args) if hasattr(args, "limit") else ""))
+        if args.action in {"show", "current"}:
+            return client.request(
+                "GET", path + "/" + ("current" if args.action == "current" else segment(args.id))
+            )
+        suffix = args.action if args.action == "refresh" else segment(args.id) + "/" + args.action
+        return client.request("POST", path + "/" + suffix, {"idempotency_key": new_request_key(args)})
+    if args.command == "analyze":
+        return client.request(
+            "POST",
+            root + "/analyses",
+            {
+                "source_kind": args.source,
+                "source_id": args.source_id,
+                "retry_of": args.retry_of,
+                "idempotency_key": new_request_key(args),
+            },
+        )
+    if args.command == "algorithms":
+        return client.request("GET", root + "/algorithms")
+    if args.command == "report":
+        return client.request("GET", root + "/report?days=" + str(args.days))
+    if args.command == "review":
+        if args.action == "list":
+            return client.request("GET", root + "/reviews")
+        if args.action == "start":
+            result = client.request(
+                "POST",
+                root + "/reviews/start",
+                {"concept_id": args.concept, "idempotency_key": new_request_key(args)},
+            )
+            if interactive:
+                classroom(client, root, result["lesson"], prompt, emit, lambda: str(uuid.uuid4()))
+                return client.request("GET", root + "/reviews/" + segment(result["id"]))
+            return result
+        answer = args.answer
+        if answer is None:
+            if not interactive:
+                raise CLIError("missing_answer", "非交互复习需要 --answer", 2)
+            answer = prompt("你的答案：")
+        return client.request(
+            "POST",
+            root + "/reviews/" + segment(args.id) + "/submit",
+            {
+                "item_id": args.item,
+                "answer": answer,
+                "memory_rating": args.rating,
+                "idempotency_key": new_request_key(args),
+            },
+        )
     if args.command == "progress":
         return {
             "profile": client.request("GET", root + "/profile"),

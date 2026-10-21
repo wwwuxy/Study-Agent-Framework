@@ -24,7 +24,7 @@
 <text x="778" y="408" font-size="16" fill="#697568">记录答案、提示与辅助程度</text><rect x="402" y="309" width="316" height="132" rx="14" fill="#ffffff" stroke="#dde3d6"/>
 <text x="424" y="339" font-size="13" font-weight="650" letter-spacing="2" fill="#8e9b81">05</text>
 <text x="424" y="374" font-size="23" font-weight="600" fill="#254a37">更新学习证据</text>
-<text x="424" y="408" font-size="16" fill="#697568">按规则估计各知识点状态</text><rect x="48" y="309" width="316" height="132" rx="14" fill="#ffffff" stroke="#dde3d6"/>
+<text x="424" y="408" font-size="16" fill="#697568">BKT 估计知识 · FSRS 安排复习</text><rect x="48" y="309" width="316" height="132" rx="14" fill="#ffffff" stroke="#dde3d6"/>
 <text x="70" y="339" font-size="13" font-weight="650" letter-spacing="2" fill="#8e9b81">06</text>
 <text x="70" y="374" font-size="23" font-weight="600" fill="#254a37">选择下一步任务</text>
 <text x="70" y="408" font-size="16" fill="#697568">保存进度，随时继续学习</text><rect x="48" y="480" width="1024" height="84" rx="14" fill="#e9eee0"/>

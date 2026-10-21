@@ -51,4 +51,5 @@ class AttemptSubmit(IdempotentRequest):
     item_id: str = Field(min_length=1, max_length=36)
     answer: str = Field(min_length=1, max_length=12000)
     assistance_level: Literal["none", "hint", "solution"] = "none"
+    memory_rating: Literal["again", "hard", "good", "easy"] | None = None
     duration_seconds: int | None = Field(default=None, ge=0, le=86400)

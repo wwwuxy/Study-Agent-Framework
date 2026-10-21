@@ -15,7 +15,8 @@ export function createExamDiagnosticState({
     scope = null,
     pending = null;
   const patches = new Map(),
-    actionKeys = new Map();
+    actionKeys = new Map(),
+    removed = new Set();
   function enter(root) {
     if (root !== scope) {
       generation++;
@@ -23,6 +24,7 @@ export function createExamDiagnosticState({
       pending = null;
       patches.clear();
       actionKeys.clear();
+      removed.clear();
     }
     const ticket = generation;
     return () => ticket === generation && root === scope;
@@ -123,9 +125,23 @@ export function createExamDiagnosticState({
     },
     async poll(root, id, onCurrent) {
       const current = enter(root);
+      if (removed.has(id)) return null;
       const result = await api(`${root}/exam-diagnostics/${id}`);
-      if (current()) await onCurrent(result);
-      return current() ? result : null;
+      if (current() && !removed.has(id)) await onCurrent(result);
+      return current() && !removed.has(id) ? result : null;
+    },
+    async remove(root, diagnostic, onCurrent) {
+      const current = enter(root);
+      removed.add(diagnostic.id);
+      try {
+        await api(`${root}/exam-diagnostics/${diagnostic.id}`, {
+          method: "DELETE",
+        });
+      } catch (error) {
+        if (current()) removed.delete(diagnostic.id);
+        throw error;
+      }
+      if (current()) await onCurrent();
     },
     async patch(root, id, questionId, changes, onCurrent) {
       const current = enter(root);

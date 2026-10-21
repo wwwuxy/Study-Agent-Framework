@@ -55,7 +55,7 @@ def own(db, user_id, space_id, diagnostic_id, *, lock=False):
     if lock:
         query = query.with_for_update().execution_options(populate_existing=True)
     row = db.scalar(query)
-    if not row:
+    if not row or row.status == "deleted":
         raise ProviderError("not_found", "试卷诊断不存在", 404)
     if row.canonical_id:
         return own(db, user_id, space_id, row.canonical_id, lock=lock)

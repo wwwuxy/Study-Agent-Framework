@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy import delete, select
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import current_user, get_db
 from app.core.security import check_password, password_hash, token_hash
@@ -64,7 +65,16 @@ async def me(user=Depends(current_user)):
 
 
 @router.post("/logout", status_code=204)
-async def logout(request: Request, response: Response, db=Depends(get_db)):
-    token = request.cookies.get("study_session", "")
-    db.execute(delete(AuthSession).where(AuthSession.token_hash == token_hash(token)))
+async def logout(request: Request, response: Response):
+    hashed = token_hash(request.cookies.get("study_session", ""))
+
+    def revoke():
+        with request.app.state.session_factory.begin() as db:
+            db.execute(delete(AuthSession).where(AuthSession.token_hash == hashed))
+
+    if request.app.state.settings.database_url.startswith("sqlite"):
+        async with request.app.state.sqlite_lock:
+            await run_in_threadpool(revoke)
+    else:
+        await run_in_threadpool(revoke)
     response.delete_cookie("study_session", path="/")

@@ -13,6 +13,7 @@ class FakeAdapter(TextOnlyAdapter):
             "cost": 0,
             "cost_status": "demo_no_charge",
             "currency": "USD",
+            "usage_reported": True,
         }
 
     async def probe_capabilities(self):
@@ -33,6 +34,82 @@ class FakeAdapter(TextOnlyAdapter):
     async def generate_structured(self, messages, schema):
         task = json.loads(messages[-1]["content"])
         title = schema.get("title")
+        if title == "AnalysisContent":
+            return {
+                "summary": "离线固定演示：先完成当前可执行任务，再根据真实作答调整安排。",
+                "recommendations": ["优先继续尚未完成的课堂", "按今日预算安排到期复习"],
+                "caveats": ["这是固定演示，不代表真实模型分析或教育效果。"],
+            }
+        if title == "ChatDecision":
+            import re
+
+            message = task.get("message", "")
+            patch = {}
+            additions = []
+            stages = None
+            match = re.search(r"(\d+)\s*分钟", message)
+            if match:
+                patch["daily_minutes"] = int(match.group(1))
+            if "面试" in message:
+                patch["teaching_preferences"] = "使用贴近面试的例子，简洁解释后再练习"
+            if "先学" in message and "进程" in message:
+                patch["priority_concept_ids"] = ["process"]
+            if "虚拟内存" in message and any(w in message for w in ["增加", "补充", "添加"]):
+                additions = [
+                    {
+                        "key": "virtual_memory",
+                        "name": "虚拟内存",
+                        "module": "内存管理",
+                        "objectives": ["解释地址映射"],
+                        "prerequisites": ["os"],
+                        "importance": 3,
+                        "minutes": 15,
+                    }
+                ]
+                patch["priority_concept_ids"] = ["virtual_memory"]
+            if patch or additions:
+                known = {c["key"]: c for c in [*task.get("concepts", []), *additions]}
+                if not task.get("intent", {}).get("stages") or additions or "先学" in message:
+                    ordered = []
+                    remaining = dict(known)
+                    while remaining:
+                        ready = [
+                            c
+                            for c in remaining.values()
+                            if all(p in {n["key"] for n in ordered} for p in c["prerequisites"])
+                        ]
+                        if not ready:
+                            break
+                        for node in ready:
+                            ordered.append(node)
+                            remaining.pop(node["key"])
+                    stages = [
+                        {
+                            "title": c["name"],
+                            "objective": "；".join(c["objectives"]),
+                            "concept_ids": [c["key"]],
+                            "suggested_sessions": 2,
+                        }
+                        for c in ordered
+                    ][:12]
+                return {
+                    "kind": "update_plan",
+                    "reply": "离线固定演示：已提出你的学习安排调整，具体生效结果见下方。",
+                    "patch": patch,
+                    "added_concepts": additions,
+                    "stages": stages,
+                    "interrupt_current": "先学" in message or bool(additions),
+                    "reason": "用户明确调整学习需求",
+                }
+            if "调整" in message:
+                return {
+                    "kind": "clarify",
+                    "reply": "你希望调整每天学习时间，还是优先学习的知识点？（固定演示）",
+                }
+            return {
+                "kind": "reply",
+                "reply": "当前计划结合知识前置、作答证据和复习到期安排。你可以告诉我新的时间或重点。（固定演示）",
+            }
         if title == "Curriculum":
             return {
                 "concepts": [
@@ -76,6 +153,11 @@ class FakeAdapter(TextOnlyAdapter):
             key = task["concept_ids"][0]
             count = task.get("existing_question_count", 0)
             details = {
+                "virtual_memory": (
+                    "理解虚拟内存",
+                    "虚拟内存为进程提供独立的虚拟地址空间，系统通过页表将虚拟页映射到物理页。此内容是固定演示。",
+                    "例如两个进程使用相同的虚拟地址，经过各自的页表后可访问不同的物理内存。",
+                ),
                 "os": (
                     "理解操作系统",
                     "操作系统管理 CPU、内存和设备，向应用程序提供受控的系统调用接口。阅读本讲只记录经历，掌握需要独立测评证据。",
@@ -113,6 +195,11 @@ class FakeAdapter(TextOnlyAdapter):
     @staticmethod
     def question(key, index):
         bank = {
+            "virtual_memory": [
+                ("虚拟内存为进程提供什么？", "独立的虚拟地址空间", "无限数量的 CPU 寄存器"),
+                ("虚拟地址通常通过什么映射到物理地址？", "页表与地址转换机制", "文件名排序"),
+                ("两个进程使用相同虚拟地址，是否必须访问同一物理页？", "不必须，各自页表可以不同", "必须"),
+            ],
             "os": [
                 ("哪项属于操作系统的核心职责？", "管理 CPU、内存和设备", "撰写用户文章"),
                 ("多个应用同时请求内存时，由谁协调分配？", "操作系统", "图片编辑器"),
