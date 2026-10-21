@@ -5,94 +5,63 @@
 <h1 align="center">StudyAgent Framework</h1>
 
 <p align="center">
-  A personal learning agent powered by your own model API.<br />
-  <strong>Start with a goal. Learn with evidence. Pick up where you left off.</strong>
+  Bring your own model API and keep learning through diagnostics, lessons, practice and reviews.<br />
+  <strong>Save your progress. Understand why the next step is recommended.</strong>
+</p>
+
+<p align="center"><a href="README.md">简体中文</a> · <strong>English</strong></p>
+
+<p align="center">
+  <img src="docs/assets/readme-stack.svg" alt="Python 3.12+ · FastAPI · React 19 · CLI + Web · BYOK · BKT + FSRS" width="780" />
 </p>
 
 <p align="center">
-  <a href="README.md">简体中文</a> · <strong>English</strong>
-</p>
-
-<p align="center">
-  <img src="docs/assets/readme-stack.svg" alt="Python 3.12+ · FastAPI · React 19 · CLI + Web · BYOK · M1 + M2 + M3 + M4" width="780" />
-</p>
-
-<p align="center">
-  <a href="#preview">Screenshots</a> ·
   <a href="#quick-start">Quick start</a> ·
-  <a href="#cli">CLI workflow</a> ·
-  <a href="#materials">Your materials</a> ·
+  <a href="#preview">Animated tutorials</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#cli">CLI</a> ·
   <a href="#documentation">Documentation</a>
 </p>
 
----
+## From a learning goal to the next step
 
-## What can StudyAgent do?
+StudyAgent is a personal learning workspace. Connect a model, create separate spaces for your goals, and update knowledge estimates and review schedules from actual answers. Web and CLI share the backend and learning history, so you can continue after refreshing the page or closing the terminal.
 
-Connect your own model, set a learning goal, take a diagnostic, study explanations, and practice with feedback. You can also upload private PDFs so new teaching retrieves your material evidence first and shows document and chapter references.
-
-**The CLI and Web share one backend and learning history.** Use the same account and space to continue after closing your terminal or refreshing the page.
-
-| | Feature | What you get |
-|---|---|---|
-| 🧠 | **Bring your own model** | Configure a base URL, API key, and model; test chat, JSON, and optional file capabilities |
-| 🎯 | **Learn toward a goal** | A candidate knowledge structure, initial diagnostics, explanations, examples, hints, and exercises |
-| 📚 | **Private materials and citations** | Remote PDF understanding, chapter retrieval, source references, and authenticated original downloads |
-| 🔄 | **Automatic database updates** | Persist uploads immediately; publish concepts, indexes, and plans after processing, then refresh the UI |
-| 📈 | **Progress based on evidence** | Estimate knowledge state from actual answers, record assistance, and explain the next recommendation |
-| 💻 | **CLI and Web together** | Interactive practice, JSON output, persistent sessions, progress recovery, and separate learning spaces |
-
-> **Current status:** M1 learning-loop and M2 private-material functionality is implemented. Real BYOK textbook samples, native pgvector, and Docker deployment still need validation in the target environment. M3 now provides mandatory native pyBKT + py-fsrs, due reviews, 7/30-day reports and offline calibration. Real educational effectiveness remains unvalidated; M4 adds daily tasks, in-app messages, weekly snapshots, explicit AI analysis with quotas, and standalone login/register pages. Accounts have isolated data; background coordination never calls the LLM. [Validation record, in Chinese](docs/acceptance.md)
+- **Start without a textbook:** generate a course structure, diagnose your starting point, then study explanations, examples and exercises.
+- **Bring your own material:** upload PDF textbooks for chapter retrieval and citations, or teacher-graded papers to identify weak concepts.
+- **Adjust the plan through chat:** change your daily time budget, priorities and teaching preferences, then inspect what actually changed.
+- **Keep a connected record:** daily tasks, due reviews, rolling statistics, weekly summaries and a learning timeline follow the same goal.
 
 <a id="preview"></a>
 
-## Screenshots
+## Animated tutorials
 
-### Models, spaces and operations in one place
+These looping GIFs use **actual interaction keyframes from the current Web UI**, with Chinese and English captions. They use an isolated account and fixed offline fixtures: no real textbooks or paid model calls. Waiting periods are shortened; they do not demonstrate real-provider latency or content quality. The Web UI is currently primarily Chinese.
 
-Models & Settings groups model connections, study spaces and background operations. Learning Reports groups rolling statistics and natural-week summaries.
+### 1. Read, answer, and continue to the next lesson
 
-![Unified models and settings](docs/assets/settings-tabs.jpg)
+Open **专属课堂 (Classroom)** → start or resume → read the explanation and example → submit an answer → review feedback → continue learning.
 
-### Daily tasks and weekly summaries
+![Classroom tutorial: prepare a lesson, read, submit an answer, inspect feedback, and continue](docs/assets/readme-learning.gif)
 
-Background coordination uses existing evidence without model calls. AI analysis is explicitly requested; login and registration pages isolate each account's data.
+Once every exercise has been submitted, **下一次学习 (Next learning session)** confirms the explanation as read and prepares a lesson from your latest state. Unanswered exercises produce guidance beside the button. Lesson preparation, answer submission and hint requests show loading feedback where the action was triggered.
 
-![M4 daily workbench](docs/assets/m4-daily.jpg)
-![Natural-week report](docs/assets/m4-weekly.jpg)
+### 2. Adjust your learning plan through chat
 
-[Configuration and guide (Chinese)](docs/m4-active-learning.md). Reminder settings and a new authorization/data-control module are excluded by user request.
+Open **学习对话 (Learning chat)** and ask to study for 15 minutes daily, prioritize process scheduling and use interview-style examples. Inspect the change card and current plan.
 
+![Planning chat tutorial: send a request, clear the composer, and inspect updated time and stages](docs/assets/readme-planning-chat.gif)
 
-### Material retrieval: trace content back to its source
+Clear requests apply automatically after validation; ambiguous requests trigger clarification. Sending clears the composer immediately; failed requests restore the draft for editing or retry. Previous answers, review history and paused lessons remain available. Replies are published after validation, rather than streamed token by token.
 
-Results include the source document and chapter, with an original download for verification. Unverified page numbers are never presented as reliable references.
+<details>
+<summary>View the current knowledge map</summary>
 
-![Private-material keyword retrieval with chapter summaries and source citations](docs/assets/m2-library.png)
+![Current knowledge map with prerequisites, concept details, and learning evidence](docs/assets/readme-knowledge.jpg)
 
-### Knowledge mind map: explore connected concepts
+Drag, zoom, fit the canvas, or locate a concept using the selector. Solid lines show main branches; dashed lines preserve other prerequisite relationships. Select a node to inspect objectives, prerequisite knowledge and evidence.
 
-The interactive mind map connects your learning goal to individual concepts. Solid lines show the main branches; dashed arrows retain additional prerequisite links. Select a node to inspect objectives, prerequisites, and evidence. Drag, zoom, fit the canvas, or use the concept selector to navigate; touch gestures are supported on mobile.
-
-When upload processing completes, new concepts appear automatically in the database and mind map. **They remain undiagnosed: uploading or reading does not directly increase mastery.**
-
-![Knowledge mind map with prerequisite links and concept details](docs/assets/knowledge-mind-map.jpg)
-
-<sub>These are actual local UI screenshots from isolated demo accounts using explicitly labeled fixed fixtures. They do not prove that a real provider has understood a textbook. The Web UI is currently primarily Chinese; this English README does not imply an English UI translation.</sub>
-
-### Learning reports: progress backed by evidence
-
-![Learning report and mandatory algorithm status](docs/assets/m3-report.png)
-
-<sub>Disposable demonstration account with fixed examples; parameters are uncalibrated for real learners.</sub>
-
-## The learning loop
-
-![Learning workflow: goal, diagnostic, lesson, practice, evidence, and the next step](docs/assets/learning-loop.en.svg)
-
-- **Without materials:** your model generates candidate curricula and teaching content, marked as unverified.
-- **With materials:** retrieve your evidence first. By default, insufficient evidence blocks new teaching; general-knowledge supplementation requires a separate opt-in.
-- **With practice:** save answers as learning evidence, then update knowledge with pyBKT and memory schedules with py-fsrs. Reading receipts and mastery evidence are handled separately.
+</details>
 
 <a id="quick-start"></a>
 
@@ -100,50 +69,121 @@ When upload processing completes, new concepts appear automatically in the datab
 
 ### 1. Install and start
 
-You need **Python 3.12+ and uv**. The Web setup also needs **Node.js 22+ and npm**. The commands below target macOS/Linux; Windows users can use WSL.
+Prepare **Python 3.12+, uv, Node.js 22.12+ and npm**. These commands target macOS/Linux; Windows users can use WSL.
 
 ```bash
 git clone https://github.com/wwwuxy/Study-Agent-Framework.git
 cd Study-Agent-Framework
 
-# Install backend, CLI, and Web dependencies; create local config and migrate the database
+# Install backend, CLI and frontend dependencies, create local config,
+# migrate the database, and build the Web UI
 ./scripts/setup.sh
 
-# Keep this terminal running; the backend also serves the built Web UI
+# Keep this terminal running; the backend serves the API and built Web UI
 ./scripts/serve.sh
 ```
 
-Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)**: register or sign in → add and test a model → create a space → start diagnostics and learning.
+Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)**. Initial setup generates an encryption key, preserves an existing `.env`, and leaves demo mode disabled.
 
-Setup preserves an existing `.env` and leaves demo mode off. After an upgrade, restarting `serve.sh` runs pending database migrations.
+### 2. Start learning in the browser
+
+1. Register or sign in.
+2. Open **模型与设置 → 模型连接 (Models & Settings → Model connections)**. Choose a preset or custom endpoint, enter the model and API key, save, then test the connection. Chat, image and PDF capabilities are tested separately; retest after editing a connection.
+3. Create a study space, choose a tested model and enter your goal.
+4. Start from **今日任务 (Today)** or use **专属课堂 (Classroom)** for diagnostics, lessons and practice.
+5. Use **学习对话 (Learning chat)** to adjust your time or priorities and **学习概要 (Learning reports)** to inspect progress.
+
+Calls use your own provider configuration and may incur charges. A connection configuration ID is different from the provider's model name: the ID identifies a saved connection; the model name belongs in its settings.
+
+### 3. No API key? Try the offline demo
+
+Stop any running server, then explicitly enable demo providers:
+
+```bash
+ENABLE_FAKE_PROVIDER=true ./scripts/serve.sh
+```
+
+After signing in, choose **离线演示 (Offline demo)** when adding a model, save and test it, then create a space. The demo uses fixed operating-system fixtures. Real-provider failures never silently fall back to a demo.
 
 <details>
-<summary><strong>CLI-only installation or Web development</strong></summary>
+<summary>CLI-only installation, development mode, and upgrades</summary>
 
-Install only the CLI and backend, without Node.js:
+Install just the backend and CLI without Node.js:
 
 ```bash
 ./scripts/setup.sh --backend-only
 ./scripts/serve.sh
 ```
 
-For Web development, start the backend and Vite together:
+For frontend development:
 
 ```bash
 ./scripts/dev.sh
-# Web:     http://localhost:5173
-# Backend: http://127.0.0.1:8000
+# Web: http://localhost:5173
+# API: http://127.0.0.1:8000
 ```
 
-Choose either `serve.sh` or `dev.sh`; running both can cause a port 8000 conflict.
+Choose either `serve.sh` or `dev.sh` to avoid a port 8000 conflict.
+
+To upgrade, stop the old server, update dependencies, migrate and rebuild:
+
+```bash
+git pull --ff-only
+./scripts/setup.sh
+./scripts/serve.sh
+```
+
+`serve.sh` applies database migrations but **does not rebuild an existing frontend**. For frontend-only edits, run `npm --prefix frontend run build`. Restart the server after backend code changes.
 
 </details>
 
+<a id="features"></a>
+
+## Features and pages
+
+| Page | What you can do |
+|---|---|
+| **Today** | View priority tasks, due reviews and suggestions within your time budget; start, verify completion, skip or postpone |
+| **Learning chat** | Adjust goals, time, deadlines, priorities and teaching preferences; inspect changes, history and paused lessons |
+| **Classroom** | Diagnose, read explanations and examples, request hints, practice with feedback, and resume unfinished lessons |
+| **Knowledge map** | Explore concepts, prerequisites, objectives, estimated mastery and supporting evidence |
+| **Private materials** | Upload PDFs, process them in the background, retrieve chapters and citations, download originals, reindex or delete |
+| **Exam diagnostics** | Upload graded papers; review per-question results, concept performance and suggestions; correct, retry or delete reports |
+| **Learning reports** | Inspect the overview, recent 7/30-day statistics, weekly summaries, spaced reviews and learning history |
+| **Models & Settings** | Manage model connections and study spaces, switch teaching models, and inspect background tasks and analysis usage |
+
+### Daily plans, reviews and reports
+
+Daily coordination and weekly statistics use saved learning records and **do not call a model**. Authorized material processing and exam recognition do call the chosen model in the background. Request **AI analysis** explicitly when you want an interpretation of a daily plan or saved weekly report.
+
+The default analysis allowance is 10 requests and 100,000 tokens per day, shared across an account's spaces and reset by UTC date. Reserved and actual usage appear under background operations; provider bills determine monetary charges.
+
+**pyBKT 1.4.3** and **py-fsrs 6.3.2 / FSRS-6** track knowledge and memory separately. Answers, assistance and evidence reliability affect estimates. Uploading, reading and self-reported chat claims do not directly increase mastery. Default parameters are not personally calibrated; estimates are learning aids.
+
+<a id="materials"></a>
+
+## Materials and papers: test capabilities before uploading
+
+| Content | Model requirement | Default upload limits |
+|---|---|---|
+| **Private textbook** | Custom native Files + Responses connection with verified PDF capability | PDF; 20 MiB per file; up to 20 processed chapters |
+| **Graded PDF paper** | Verified native PDF connection | 20 MiB per file |
+| **Graded paper photos** | Verified OpenAI-compatible or native image capability | JPG/PNG; up to 20 images; 40 MiB per paper |
+
+The page shows the instance's actual supported formats and limits. Chat support does not imply image or PDF support; retest old or edited connections. Textbook ingestion does not support DOCX/EPUB, and an exam cannot mix PDF and photos.
+
+- **Textbooks:** select a PDF → authorize this transfer → upload and index → automatically publish chapters and concepts → inspect citations in lessons or search results. No manual job execution is required.
+- **Papers:** select a graded paper → order photos and optionally enter the exam date → authorize and upload → read the history and question-level report. Only clearly graded results reliably mapped to one existing concept update knowledge estimates. Historical papers do not reset review schedules.
+- **Retrieval:** keyword search and model reranking are the default. Remote embeddings are optional after configuration and testing. Verify generated summaries, chapters and page references against the original.
+- **Deletion:** removing materials deletes local originals and indexes and attempts remote cleanup. Removing a completed diagnostic retracts its imported evidence and recalculates knowledge state. Provider policies govern remote retention.
+
+See the [material guide](docs/m2-materials.md) and [exam diagnostics guide](docs/exam-diagnostics.md), currently in Chinese.
+
 <a id="cli"></a>
 
-### 2. Start learning from your terminal
+## CLI workflow
 
-Open another terminal in the project directory. Passwords and API keys use hidden prompts, so they do not need to appear in shell history.
+The CLI and Web sign in separately but share backend accounts and learning progress. Passwords and API keys use hidden prompts by default.
 
 ```bash
 source .venv/bin/activate
@@ -151,219 +191,122 @@ study-agent auth register --username yourname
 # Existing account: study-agent auth login --username yourname
 
 study-agent provider add --name 'My learning model' \
-  --model 'provider-chat-model-id' \
+  --model 'provider-model-name' \
   --base-url 'https://api.example.com/v1' \
   --accept-data-transfer
-```
 
-Replace the example endpoint and model with your provider's actual values. Replace `PROVIDER_ID` below with the full ID returned by `provider add`:
-
-```bash
+# Replace PROVIDER_ID with the saved connection ID returned above
 study-agent provider test PROVIDER_ID
 study-agent space create --goal 'Learn operating systems systematically' \
   --provider PROVIDER_ID --minutes 30
 
 study-agent diagnose
 study-agent learn
-study-agent progress
-study-agent next
 ```
 
-`--accept-data-transfer` authorizes sending learning goals, context, and answers to the selected provider, acknowledging possible charges and its retention policy.
+Replace the example endpoint and model name with values from your provider.
 
-### 3. No paid key yet? Try the demo
+| Task | Command |
+|---|---|
+| Start or resume a lesson | `study-agent learn` |
+| Read or refresh today's plan | `study-agent today` / `study-agent today --refresh` |
+| List or start a task | `study-agent task list` / `study-agent task start TASK_ID` |
+| Inspect progress, plan and next step | `study-agent progress` / `study-agent plan` / `study-agent next` |
+| Due reviews and recent report | `study-agent review list` / `study-agent report --days 7` |
+| Current week or saved summaries | `study-agent weekly current` / `study-agent weekly list` |
+| Suggestions or in-app messages | `study-agent suggestion list` / `study-agent inbox list` |
+| Analysis allowance or background jobs | `study-agent analysis-usage` / `study-agent activity-jobs list` |
+| Learning events or model usage | `study-agent events` / `study-agent runs` |
+| Switch spaces | `study-agent space list` → `study-agent space use SPACE_ID` |
+| JSON output | `study-agent --json report --days 30` |
 
-Explicitly enable demo providers when starting the backend:
+Interactive practice supports `/hint`, `/skip` and `/quit`. Put global flags such as `--json`, `--server` and `--timeout` before the main command, for example `study-agent --server https://study.example.com auth login --username yourname`. Learning chat and exam diagnostics currently use the Web UI; there are no dedicated CLI subcommands for them.
 
-```bash
-ENABLE_FAKE_PROVIDER=true ./scripts/serve.sh
-```
+<details>
+<summary>Upload materials and request AI analysis from the CLI</summary>
 
-In another terminal, after signing in:
-
-```bash
-study-agent provider add --name 'Operating systems demo' --demo
-study-agent provider test PROVIDER_ID
-study-agent space create --goal 'Learn operating systems' --provider PROVIDER_ID
-study-agent diagnose
-study-agent learn
-```
-
-Use the ID returned for this demo configuration. The demo uses fixed operating-system fixtures, makes no paid model requests, and is never silently substituted when a real provider fails.
-
-<a id="materials"></a>
-
-## Bring your own materials
-
-### Verify file support before uploading
-
-Working chat does not imply working file input. Create a native-file configuration using a service and model that actually implement the Files + Responses protocol:
+Create a native file connection and select the relevant space:
 
 ```bash
 study-agent provider add --name 'My file model' --files \
-  --model 'provider-file-model-id' \
+  --model 'provider-file-model-name' \
   --base-url 'https://api.example.com/v1' --accept-data-transfer
 study-agent provider test FILE_PROVIDER_ID
 study-agent space switch-provider SPACE_ID --provider FILE_PROVIDER_ID
 study-agent space use SPACE_ID
-```
 
-Replace the model and endpoint, then use your actual model-configuration and space IDs. The probe uploads a framework-generated PDF containing a random marker, enables PDF only after reading that marker back, and attempts to delete the probe file. Testing may incur provider charges.
-
-```bash
 study-agent material upload '/absolute/path/textbook.pdf' \
   --accept-file-transfer --request-id textbook-001
-
-# Optional status check. Processing starts automatically; job run is not required.
 study-agent job wait JOB_ID --seconds 180
 study-agent material search 'process scheduling' --mode keyword
 study-agent material show MATERIAL_ID
 ```
 
-| Automatic update stage | What is persisted |
-|---|---|
-| Upload accepted | File metadata, hash, owning space, and durable job |
-| Remote understanding | Remote references, outline, chapter progress, and recovery checkpoints |
-| Validated publication | Chapters, summaries, concepts, sources, optional vectors, and the updated learning plan |
-| UI synchronization | Refresh material details, knowledge map, and plan; committed data survives restarts |
-
-Defaults are **20 MiB per file** and **20 chapters**, with the background worker enabled. Each upload or reindex needs explicit consent. Failed jobs can be retried; canceled materials can be reindexed.
-
-<details>
-<summary><strong>Material management, retrieval options, and capability matrix</strong></summary>
+Replace IDs with complete values returned by the corresponding commands. File probing uploads a randomly marked test PDF and attempts deletion; it may incur charges. Each upload or reindex requires its own authorization.
 
 ```bash
-study-agent material list
-study-agent job show JOB_ID
-study-agent job retry FAILED_JOB_ID --request-id retry-001
-study-agent job cancel JOB_ID
-study-agent material reindex MATERIAL_ID --accept-file-transfer
-study-agent material download MATERIAL_ID --output '/new/path/textbook.pdf'
-study-agent material remove MATERIAL_ID
+study-agent --json today --refresh
+study-agent analyze --source daily_plan --source-id PLAN_ID
+study-agent analysis list
+study-agent analysis-usage
 ```
 
-Deletion removes local originals and indexes immediately, then runs remote cleanup separately. Failed cleanup remains visible and retryable. Downloads do not overwrite existing files.
-
-| Provider configuration | Chat / JSON | PDF | Remote embeddings |
-|---|---|---|---|
-| Default compatible chat | Actually probed | Disabled | Disabled |
-| Native `--files` | Actually probed | Enabled after random-file probe succeeds | Optional after model configuration and a successful probe |
-| `--demo` | Fixed fixtures | Unsupported | Unsupported |
-| `--demo-files` | Fixed fixtures | Fixed material fixtures; does not read uploaded content | Optional demo vectors |
-
-The default is **keyword matching + reranking by your model**, with no embedding model required. For vector retrieval, add `--embedding-model 'embedding-model-id'` to the native configuration, test it, and pass `--embeddings` for that upload or reindex. Search with `--mode embedding`. Native pgvector storage requires additional administrator setup.
-
-Only actually verified PDF input is enabled; DOCX and EPUB are not supported. File retention and charges follow your provider's policy. The framework performs no local document-body extraction, OCR, or embedding-model inference. [Detailed material guide, in Chinese](docs/m2-materials.md)
+Use the `id` returned by `study-agent --json today --refresh` as `PLAN_ID`. Analysis calls the current space's model and consumes the daily allowance. See the [CLI guide](docs/cli.md) for further commands.
 
 </details>
 
-## Adaptive learning with BKT and FSRS
-
-![BKT, FSRS and the shared learning loop](docs/assets/m3-adaptive.svg)
-
-Every space uses **pyBKT 1.4.3** for skill estimation and **py-fsrs 6.3.2 / FSRS-6** for memory scheduling. There is no per-space switch or legacy fallback. Web and CLI share the same review sessions, evidence, cards and plans.
-
-```bash
-study-agent algorithms
-study-agent review list
-study-agent review start --concept CONCEPT_ID --request-id review-001
-study-agent review submit REVIEW_ID --item ITEM_ID --answer 'A' --rating good --request-id answer-001
-study-agent report --days 7
-study-agent --json report --days 30
-```
-
-Independent correct answers default to Good, with Hard/Easy available. Incorrect or hinted answers require Again; the server enforces this. Unassessed cards are separate from overdue reviews. Reading and uncertain grading do not establish mastery.
-
-Native BKT EM and the official FSRS optimizer were actually exercised in an isolated environment with our own synthetic data. Default parameters remain uncalibrated for real learners. These results do not establish educational improvement. See the [M3 guide](docs/m3-adaptive-learning.md) and [evaluation record](docs/m3-evaluation.md), in Chinese.
-
-## Change your learning plan through chat
-
-Open **学习对话 (Learning chat)** in the Web sidebar, or use the plan adjustment entry in the overview/classroom. For example:
-
-> Change my daily budget to 15 minutes, prioritize process scheduling, and use interview-style examples.
-
-Clear instructions **apply automatically**, with a before/after change card. Ambiguous requests trigger clarification. Adjust goals, dates, priorities or teaching preferences, and add concepts while retaining existing evidence. The current model generates the roadmap; BKT, FSRS and prerequisites still determine the executable next step.
-
-![Planning chat, change cards and paused lessons](docs/assets/planning-chat.jpg)
-
-Conversations and versioned intent persist across restarts. Existing CLI `plan`, `next` and `learn` commands share the updates. Paused lessons retain their original questions; chat never grants mastery or changes existing FSRS cards. BYOK calls may incur provider charges. Replies and plan updates are published together after validation. The screenshot uses a disposable account and fixed demonstration data, not a real provider quality assessment.
-
-[Chat usage and recovery guide, in Chinese](docs/planning-chat.md)
-
-## Everyday commands
-
-| Task | Command |
-|---|---|
-| Resume learning | `study-agent learn` |
-| Inspect knowledge state and evidence | `study-agent progress` |
-| Read the plan and next action | `study-agent plan` / `study-agent next` |
-| Switch learning spaces | `study-agent space list` → `study-agent space use SPACE_ID` |
-| Inspect events and model usage | `study-agent events` / `study-agent runs` |
-| Get JSON for scripts | `study-agent --json progress` |
-| Connect to another backend | `study-agent --server https://study.example.com auth login --username yourname` |
-
-Interactive practice supports `/hint`, `/skip`, and `/quit`. Put global options such as `--json` and `--server` before the main command. The CLI and browser sign in separately while sharing backend learning records. [Full CLI guide, in Chinese](docs/cli.md)
-
 ## Configuration and data
 
-See [`.env.example`](.env.example) for the complete template. Detailed deployment, Docker instructions, and troubleshooting are preserved in the [Chinese manual](docs/usage.zh-CN.md).
+The complete template is [`.env.example`](.env.example). Local installations use SQLite by default; PostgreSQL and optional pgvector storage are also supported.
 
 | Setting | Default / purpose |
 |---|---|
-| `CREDENTIAL_ENCRYPTION_KEY` | Generated by initial setup; encrypts backend API keys. Keep a separate secure backup. |
-| `DATABASE_URL` | `sqlite:///./data/study.db`; PostgreSQL is also supported |
-| `MATERIAL_WORKER_ENABLED` | `true`; process uploads and update the database automatically |
+| `CREDENTIAL_ENCRYPTION_KEY` | Generated on first setup; encrypts provider API keys |
+| `DATABASE_URL` | `sqlite:///./data/study.db` |
+| `MATERIAL_STORAGE_DIR` | `data/materials`; private textbooks and exam attachments |
+| `MATERIAL_WORKER_ENABLED` | `true`; process material jobs automatically |
 | `MATERIAL_MAX_BYTES` / `MATERIAL_MAX_SECTIONS` | `20971520` / `20` |
-| `PGVECTOR_ENABLED` | `false`; install the extension and run `scripts/pgvector.sql` before enabling |
-| `ENABLE_FAKE_PROVIDER` | `false`; must be enabled explicitly for demo providers |
-| `COOKIE_SECURE` | Keep `true` for HTTPS; setup uses `false` for local HTTP development |
+| `EXAM_WORKER_ENABLED` / `EXAM_CALL_TIMEOUT_SECONDS` | `true` / 120 seconds |
+| `ENABLE_FAKE_PROVIDER` | `false`; demo providers require explicit opt-in |
+| `PGVECTOR_ENABLED` | `false`; install the extension and run `scripts/pgvector.sql` first |
+| `COOKIE_SECURE` | `true` for HTTPS; setup uses `false` for local HTTP |
 
-- **Originals and indexes are separate:** private local storage holds originals; the database holds metadata, chapters, and learning records. Back up the database, material directory, and corresponding encryption key.
-- **Your provider processes your data:** goals, answers, and authorized files are sent to the remote service you choose; calls may incur charges.
-- **Access is scoped by user and space:** CLI state stores sessions and space selection. Provider keys are encrypted in the backend.
-- **Generated content remains unverified:** curricula, summaries, and model grading are not authoritative validation. The current model estimates have not been psychometrically calibrated.
+API keys are encrypted in the backend, with access scoped by account and space. Goals, context, answers and separately authorized files are sent to the provider you choose. Back up the **database, private material directory and matching encryption key** together. Confirm provider charges, retention and real-model quality separately.
 
-## Development and validation
+## Maintenance and validation
 
 ```bash
 ./scripts/check.sh
-# Ruff, formatting, shell syntax, Python tests, frontend tests, and production build
+# Ruff and format checks, shell syntax, backend tests, frontend tests, and production build
+```
 
-# Use a dedicated PostgreSQL test database, never your production database
+For a dedicated PostgreSQL test database:
+
+```bash
 TEST_DATABASE_URL='postgresql+psycopg://user:password@localhost/study_agent_test' \
   .venv/bin/pytest backend/tests -q
 ```
 
-Existing validation covers background ingestion, restart recovery, source isolation, deletion races, saved-plan synchronization, and concurrent answers. Tests use explicit demo adapters and protocol substitutes. See the [validation record, in Chinese](docs/acceptance.md) for the limits of real BYOK, native pgvector, and Docker verification.
-
-## Roadmap
-
-| Stage | Status | Scope |
-|---|---|---|
-| **M1 · Learning loop** | Implemented | BYOK, goals, diagnostics, lessons, practice, evidence, plans, and CLI |
-| **M2 · Private materials** | Code implemented; some deployment validation pending | Native PDFs, automatic ingestion, durable jobs, retrieval, citations, and deletion |
-| **M3 · Adaptive learning** | Implemented; educational effectiveness unvalidated | Native BKT + FSRS, due reviews, reports and offline evaluation |
-| **M4 · Proactive support** | Implemented; see engineering validation | Daily tasks, due reviews, plan suggestions, weekly summaries, explicit analysis quotas and account isolation |
+Engineering tests use isolated databases, explicit demo adapters and protocol substitutes. They do not establish real-model recognition accuracy or educational effectiveness. See the [full manual](docs/usage.zh-CN.md) for deployment steps and the [README media notes](docs/assets/README.md) for tutorial sources and limitations.
 
 <a id="documentation"></a>
 
 ## Documentation
 
-The main READMEs are available in Chinese and English. The detailed guides below are currently in Chinese; OpenAPI is machine-readable.
+The main READMEs are bilingual. Detailed guides below are primarily Chinese; OpenAPI is machine-readable.
 
 | Document | Contents |
 |---|---|
-| [Full Chinese manual](docs/usage.zh-CN.md) | Complete setup, command reference, environment variables, deployment, and troubleshooting |
-| [CLI guide](docs/cli.md) | Interactive learning, JSON, sessions, and commands |
-| [Private-material guide](docs/m2-materials.md) | File capabilities, jobs, retrieval, deletion, and pgvector |
-| [Architecture](docs/architecture.md) · [API](docs/api.md) · [OpenAPI](docs/openapi.json) | Modules, data model, and interfaces |
-| [Security](docs/security.md) · [Validation](docs/acceptance.md) | Data boundaries, verified behavior, and pending checks |
-| [Development specification](StudyAgent_Framework_Development_Spec.md) · [Roadmap](docs/development-roadmap.md) | Requirements, milestones, and planned work |
+| [Full manual](docs/usage.zh-CN.md) | Setup, deployment, configuration, commands and troubleshooting |
+| [Learning chat](docs/planning-chat.md) | Plan changes, paused lessons, retries and data boundaries |
+| [Daily tasks and weekly reports](docs/m4-active-learning.md) | Tasks, reviews, suggestions, analysis allowance and background operations |
+| [Private materials](docs/m2-materials.md) | PDF capabilities, indexing, citations, deletion and vector retrieval |
+| [Exam diagnostics](docs/exam-diagnostics.md) | Image/PDF requirements, question-level reports, corrections and evidence retraction |
+| [CLI guide](docs/cli.md) | Interactive learning, JSON, sessions and command reference |
+| [Knowledge and reviews](docs/m3-adaptive-learning.md) · [Offline evaluation](docs/m3-evaluation.md) | BKT, FSRS, parameters and evaluation |
+| [Architecture](docs/architecture.md) · [API](docs/api.md) · [OpenAPI](docs/openapi.json) | Modules, data model and interfaces |
+| [Security](docs/security.md) | Data handling, credential protection and deployment guidance |
 
 ---
 
 <p align="center"><strong>Start with a goal. Let evidence guide the way.</strong><br /><a href="README.md">阅读中文版 →</a></p>
-
-## Graded exam diagnostics
-
-The Web sidebar includes **成绩诊断** (Exam diagnostics). Upload a teacher-graded PDF or multiple JPG/PNG pages; your configured model extracts marks and produces a report. Reliable single-concept results update knowledge state and the next learning action. Ambiguous and partial results remain reviewable. Imported exams do not reset FSRS review dates. [Workflow and limitations (Chinese)](docs/exam-diagnostics.md).
