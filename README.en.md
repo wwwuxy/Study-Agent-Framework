@@ -307,6 +307,10 @@ The main READMEs are bilingual. Detailed guides below are primarily Chinese; Ope
 | [Architecture](docs/architecture.md) · [API](docs/api.md) · [OpenAPI](docs/openapi.json) | Modules, data model and interfaces |
 | [Security](docs/security.md) | Data handling, credential protection and deployment guidance |
 
+## License
+
+This project is licensed under the [MIT License](LICENSE). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party dependencies and notices.
+
 ---
 
 <p align="center"><strong>Start with a goal. Let evidence guide the way.</strong><br /><a href="README.md">阅读中文版 →</a></p>

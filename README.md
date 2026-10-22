@@ -302,6 +302,10 @@ TEST_DATABASE_URL='postgresql+psycopg://user:password@localhost/study_agent_test
 | [架构](docs/architecture.md) · [API](docs/api.md) · [OpenAPI](docs/openapi.json) | 模块、数据模型与接口 |
 | [安全与隐私](docs/security.md) | 数据处理方式、凭证保护与部署建议 |
 
+## 许可证
+
+本项目采用 [MIT 许可证](LICENSE)。第三方依赖及其声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
 ---
 
 <p align="center"><strong>以目标为起点，以证据为方向。</strong><br /><a href="README.en.md">Read in English →</a></p>
