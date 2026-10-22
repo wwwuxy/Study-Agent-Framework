@@ -177,7 +177,7 @@ The page shows the instance's actual supported formats and limits. Chat support 
 - **Retrieval:** keyword search and model reranking are the default. Remote embeddings are optional after configuration and testing. Verify generated summaries, chapters and page references against the original.
 - **Deletion:** removing materials deletes local originals and indexes and attempts remote cleanup. Removing a completed diagnostic retracts its imported evidence and recalculates knowledge state. Provider policies govern remote retention.
 
-See the [material guide](docs/m2-materials.md) and [exam diagnostics guide](docs/exam-diagnostics.md), currently in Chinese.
+See the [material guide](docs/materials.md) and [exam diagnostics guide](docs/exam-diagnostics.md), currently in Chinese.
 
 <a id="cli"></a>
 
@@ -295,15 +295,17 @@ Engineering tests use isolated databases, explicit demo adapters and protocol su
 
 The main READMEs are bilingual. Detailed guides below are primarily Chinese; OpenAPI is machine-readable.
 
+See the [documentation index](docs/README.md) for all guides and technical references.
+
 | Document | Contents |
 |---|---|
 | [Full manual](docs/usage.zh-CN.md) | Setup, deployment, configuration, commands and troubleshooting |
 | [Learning chat](docs/planning-chat.md) | Plan changes, paused lessons, retries and data boundaries |
-| [Daily tasks and weekly reports](docs/m4-active-learning.md) | Tasks, reviews, suggestions, analysis allowance and background operations |
-| [Private materials](docs/m2-materials.md) | PDF capabilities, indexing, citations, deletion and vector retrieval |
+| [Daily tasks and weekly reports](docs/active-learning.md) | Tasks, reviews, suggestions, analysis allowance and background operations |
+| [Private materials](docs/materials.md) | PDF capabilities, indexing, citations, deletion and vector retrieval |
 | [Exam diagnostics](docs/exam-diagnostics.md) | Image/PDF requirements, question-level reports, corrections and evidence retraction |
 | [CLI guide](docs/cli.md) | Interactive learning, JSON, sessions and command reference |
-| [Knowledge and reviews](docs/m3-adaptive-learning.md) · [Offline evaluation](docs/m3-evaluation.md) | BKT, FSRS, parameters and evaluation |
+| [Knowledge and reviews](docs/adaptive-learning.md) · [Offline evaluation](docs/evaluation.md) | BKT, FSRS, parameters and evaluation |
 | [Architecture](docs/architecture.md) · [API](docs/api.md) · [OpenAPI](docs/openapi.json) | Modules, data model and interfaces |
 | [Security](docs/security.md) | Data handling, credential protection and deployment guidance |
 

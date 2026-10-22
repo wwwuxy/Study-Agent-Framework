@@ -4,7 +4,7 @@
 
 StudyAgent 是一个用户自带大语言模型 API 的个人学习 Agent 框架。你可以在终端或网页中填写学习目标，由框架组织知识结构、安排初始诊断、生成讲解与练习，并根据实际作答证据持续更新学习状态、推荐下一步任务。
 
-当前已实现**阶段一学习闭环（M1）**、**阶段二私人教材（M2）代码**与**阶段三原生 BKT／FSRS 自适应学习（M3）**，CLI 和 Web 均可使用。阶段二已用演示适配器和协议替身验证；真实 BYOK 教材与 pgvector 部署验收仍待执行，详见[阶段二使用说明](m2-materials.md)。
+支持诊断、课堂、私人教材、原生 BKT／FSRS 自适应学习、每日任务与周报；Web 还提供学习对话、知识地图和已批改试卷诊断。模型能力、资料质量与部署兼容性需按所选服务验证，默认算法参数尚未针对真实学习者校准。
 
 ```text
 配置自己的模型 → 创建学习目标 → 生成候选课程 → 初始诊断
@@ -16,7 +16,6 @@ StudyAgent 是一个用户自带大语言模型 API 的个人学习 Agent 框架
 ## 目录
 
 - [一、当前功能与实现范围](#一当前功能与实现范围)
-- [阶段二：上传教材、检索与引用](#阶段二上传教材检索与引用)
 - [二、运行环境](#二运行环境)
 - [三、CLI 快速开始](#三cli-快速开始)
 - [四、不使用付费 API 的离线演示](#四不使用付费-api-的离线演示)
@@ -30,7 +29,7 @@ StudyAgent 是一个用户自带大语言模型 API 的个人学习 Agent 框架
 - [十二、测试、构建与数据库迁移](#十二测试构建与数据库迁移)
 - [十三、项目结构与技术实现](#十三项目结构与技术实现)
 - [十四、常见问题](#十四常见问题)
-- [十五、后续开发计划与文档](#十五后续开发计划与文档)
+- [十五、相关文档](#十五相关文档)
 
 ## 一、当前功能与实现范围
 
@@ -60,66 +59,9 @@ StudyAgent 是一个用户自带大语言模型 API 的个人学习 Agent 框架
 - CLI 是 StudyAgent 的 HTTP 客户端，使用时需要一个正在运行的 StudyAgent 后端。
 - CLI 不是 Codex CLI 或 Claude Code 的模型适配器；本项目目前没有将这些命令行工具作为模型后端接入。
 - 新增 `openai_files` 原生 Files + Responses 适配器，仅开放实际探测成功的 PDF；DOCX、EPUB 暂不支持。
-- 远端 Embedding 为可选项，默认可用关键词检索；pgvector 需要管理员另行安装初始化。BKT、间隔复习与主动提醒属于后续阶段。
+- 远端 Embedding 为可选项，默认可用关键词检索；pgvector 需要管理员另行安装初始化。所有空间启用 BKT 与 FSRS；每日任务和周报自动整理已有数据，不发送邮件、短信或系统推送。
 - 不引入或运行本地 Embedding、PDF／EPUB／DOCX 正文解析和 OCR。
 - 课程、题目及其参考答案由模型生成，均不代表已核实的权威内容或最新考试大纲。
-
-## 阶段二：上传教材、检索与引用
-
-已有项目先升级数据库并重启后端：
-
-```bash
-.venv/bin/alembic -c backend/alembic.ini upgrade head
-./scripts/serve.sh
-```
-
-另开终端，激活虚拟环境并登录。新建一个支持原生文件输入的模型配置：
-
-```bash
-source .venv/bin/activate
-study-agent auth login --username 你的账号
-study-agent provider add --name '我的文件模型' --files \
-  --model '服务商的文件模型ID' --base-url 'https://你的服务商/v1' \
-  --accept-data-transfer
-study-agent provider test PROVIDER_ID
-study-agent space switch-provider SPACE_ID --provider PROVIDER_ID
-study-agent space use SPACE_ID
-```
-
-检测会上传框架生成的随机标识 PDF，实际读回后才开放 PDF；只支持聊天的连接会明确禁用上传。文件探测可能产生费用，检测文件会尝试远端删除。需要服务商同时实现聊天、Files、Responses 和文件删除协议，具体模型必须自行检测。
-
-```bash
-study-agent material upload '/绝对路径/教材.pdf' \
-  --accept-file-transfer --request-id textbook-001
-study-agent job wait JOB_ID --seconds 180
-study-agent material list
-study-agent material show MATERIAL_ID
-study-agent material search '进程调度' --mode keyword
-study-agent diagnose
-study-agent learn
-```
-
-上传成功后会立即自动写入数据库中的文件记录和处理任务；后台完成理解后，自动更新章节、知识点、来源、可选向量与学习计划，页面同步刷新资料详情和知识地图，无需手动执行 SQL 或 `job run`。新增知识点保持待诊断，已有答题证据不变。
-
-上传响应包含 `id` 和 `job_id`。默认后台按“上传 → 目录 → 各章节摘要／关键词／概念 → 可选向量 → 发布”处理，保存检查点，失败时可重试。每次上传／重新索引都须明确授权将文件发送到所选服务商，并知悉费用和第三方保留政策。默认 20 MiB、最多 20 节；`MATERIAL_MAX_BYTES` 最高可设为 `1073741824`（1024 MiB），修改后需重启后端。上传会分块写入私有临时文件，校验完成后发布，后台从磁盘流式转发；CLI 上传和下载也采用文件流。磁盘空间、处理时限和服务商自身限制仍然适用，详见[教材大小说明](m2-materials.md#2-选择空间并上传)。原文留在本机私有目录，不执行本地正文解析。
-
-```bash
-study-agent job show JOB_ID
-study-agent job retry FAILED_JOB_ID --request-id retry-001
-study-agent job cancel JOB_ID
-study-agent material reindex MATERIAL_ID --accept-file-transfer --request-id reindex-001
-study-agent material download MATERIAL_ID --output '/新的路径/教材.pdf'
-study-agent material remove MATERIAL_ID
-# 删除返回清理任务 ID；继续 job show/wait 确认远端清理结果
-```
-
-上传资料后，新诊断与课堂优先检索教材，并显示真实文件、章节和可下载原文。当前页码无法核实，界面明确标记；模型不能编造引用。资料不足默认停止新教学，用户可通过 `space knowledge-policy SPACE_ID --allow-general-knowledge` 授权通用知识补充。索引、阅读与重索引均不会直接增加掌握度。
-
-可选向量方式需要配置并检测远端 Embedding 模型，且本次上传增加 `--embeddings`。未配置时继续使用关键词 + 用户模型精排，不运行本地向量模型。Web 的“私人教材”页面提供相同功能，以及进度、失败提示与引用查看。
-
-无需付费 Key 的资料演示可使用 `provider add --name '资料演示' --demo-files`；这是独立演示适配器，**使用固定操作系统资料，未读取上传内容**，不能代表真实文件理解成功。
-
-完整的模型配置、命令示例、检索策略、远端清理、pgvector 与部署说明见[阶段二私人教材文档](m2-materials.md)。
 
 ## 二、运行环境
 
@@ -386,6 +328,69 @@ study-agent learn
 
 低置信度评分、阅读和仅有未经外部验证的 LLM 开放回答评分，不会直接触发“已掌握”。综合题答错也不会自动将所有关联概念都判为不掌握。当前算法参数尚未经过真实用户教育测量校准，状态是估计，不是权威成绩。
 
+### 上传教材、检索与引用
+
+已有项目先升级数据库并重启后端：
+
+```bash
+.venv/bin/alembic -c backend/alembic.ini upgrade head
+./scripts/serve.sh
+```
+
+另开终端，激活虚拟环境并登录。新建一个支持原生文件输入的模型配置：
+
+```bash
+source .venv/bin/activate
+study-agent auth login --username 你的账号
+study-agent provider add --name '我的文件模型' --files \
+  --model '服务商的文件模型ID' --base-url 'https://你的服务商/v1' \
+  --accept-data-transfer
+study-agent provider test PROVIDER_ID
+study-agent space switch-provider SPACE_ID --provider PROVIDER_ID
+study-agent space use SPACE_ID
+```
+
+检测会上传框架生成的随机标识 PDF，实际读回后才开放 PDF；只支持聊天的连接会明确禁用上传。文件探测可能产生费用，检测文件会尝试远端删除。需要服务商同时实现聊天、Files、Responses 和文件删除协议，具体模型必须自行检测。
+
+```bash
+study-agent material upload '/绝对路径/教材.pdf' \
+  --accept-file-transfer --request-id textbook-001
+study-agent job wait JOB_ID --seconds 180
+study-agent material list
+study-agent material show MATERIAL_ID
+study-agent material search '进程调度' --mode keyword
+study-agent diagnose
+study-agent learn
+```
+
+上传成功后会立即自动写入数据库中的文件记录和处理任务；后台完成理解后，自动更新章节、知识点、来源、可选向量与学习计划，页面同步刷新资料详情和知识地图，无需手动执行 SQL 或 `job run`。新增知识点保持待诊断，已有答题证据不变。
+
+上传响应包含 `id` 和 `job_id`。默认后台按“上传 → 目录 → 各章节摘要／关键词／概念 → 可选向量 → 发布”处理，保存检查点，失败时可重试。每次上传／重新索引都须明确授权将文件发送到所选服务商，并知悉费用和第三方保留政策。默认 20 MiB、最多 20 节；`MATERIAL_MAX_BYTES` 最高可设为 `1073741824`（1024 MiB），修改后需重启后端。上传会分块写入私有临时文件，校验完成后发布，后台从磁盘流式转发；CLI 上传和下载也采用文件流。磁盘空间、处理时限和服务商自身限制仍然适用，详见[教材大小说明](materials.md#2-选择空间并上传)。原文留在本机私有目录，不执行本地正文解析。
+
+```bash
+study-agent job show JOB_ID
+study-agent job retry FAILED_JOB_ID --request-id retry-001
+study-agent job cancel JOB_ID
+study-agent material reindex MATERIAL_ID --accept-file-transfer --request-id reindex-001
+study-agent material download MATERIAL_ID --output '/新的路径/教材.pdf'
+study-agent material remove MATERIAL_ID
+# 删除返回清理任务 ID；继续 job show/wait 确认远端清理结果
+```
+
+上传资料后，新诊断与课堂优先检索教材，并显示真实文件、章节和可下载原文。当前页码无法核实，界面明确标记；模型不能编造引用。资料不足默认停止新教学，用户可通过 `space knowledge-policy SPACE_ID --allow-general-knowledge` 授权通用知识补充。索引、阅读与重索引均不会直接增加掌握度。
+
+可选向量方式需要配置并检测远端 Embedding 模型，且本次上传增加 `--embeddings`。未配置时继续使用关键词 + 用户模型精排，不运行本地向量模型。Web 的“私人教材”页面提供相同功能，以及进度、失败提示与引用查看。
+
+无需付费 Key 的资料演示可使用 `provider add --name '资料演示' --demo-files`；这是独立演示适配器，**使用固定操作系统资料，未读取上传内容**，不能代表真实文件理解成功。
+
+完整的模型配置、命令示例、检索策略、远端清理、pgvector 与部署说明见[私人教材指南](materials.md)。
+
+### 复习、报告与算法版本
+
+所有空间统一运行原生 BKT＋FSRS。CLI 与 Web 共用后端，CLI 不计算概率或日期。先用 `study-agent review list` 查看 due／upcoming／unassessed，再用 `study-agent review start --concept CONCEPT_ID --request-id review-001` 开始或恢复；交互课堂可答题，也可用 `study-agent review submit REVIEW_ID --item ITEM_ID --answer A --rating good --request-id answer-001`。评分支持 again、hard、good、easy；提示或答错只能 again。`learn` 遇到 REVIEW 会进入同一复习会话。
+
+`study-agent algorithms` 查看必启算法与实际参数版本；`study-agent report --days 7`（或 30）查看状态变化、近期错误、复习保持率和任务完成率。所有命令支持 `--space SPACE_ID` 和主命令前的 `--json`。Web 对应「学习概要 → 间隔复习／近期统计」；空报告显示证据不足，不伪造百分比。退出重登与刷新保留已提交数据。默认参数未针对真实用户校准。部署、离线校准与维护参见 [算法与维护说明](adaptive-learning.md)。
+
 ## 六、CLI 命令参考
 
 ### 账号与会话
@@ -567,7 +572,7 @@ study-agent answer ITEM_ID --answer A --assistance hint
 
 ## 八、Web 界面使用
 
-希望使用浏览器时，需要 Node.js 22+ 和 npm：
+希望使用浏览器时，需要 Node.js 22.12+ 和 npm：
 
 ```bash
 ./scripts/setup.sh
@@ -585,7 +590,7 @@ study-agent answer ITEM_ID --answer A --assistance hint
 
 网页使用流程：注册或登录 → 模型与设置 → 添加并测试模型 → 新建学习空间 → 初始诊断 → 专属课堂 → 查看知识状态与学习记录。
 
-左侧「学习空间」提供空间管理页面，可查看目标、教学模型、创建日期和当前空间，并进入学习、新建或删除空间。点击「删除空间 → 确认永久删除」后，学习记录、课程、答题内容、学习画像、本地教材和索引将永久删除，**无法恢复**。删除当前空间后自动切换到其他空间；没有剩余空间时仍可在管理页新建。
+「模型与设置 → 学习空间」提供空间管理页面，可查看目标、教学模型、创建日期和当前空间，并进入学习、新建或删除空间。点击「删除空间 → 确认永久删除」后，学习记录、课程、答题内容、学习画像、本地教材和索引将永久删除，**无法恢复**。删除当前空间后自动切换到其他空间；没有剩余空间时仍可在管理页新建。
 
 正在处理的教材索引会取消，远端文件进入后台清理队列。「远端教材清理」区域显示等待、进行中和失败状态，失败后可点击「重试清理」。如已更换 API Key 或模型配置，可能需要恢复原配置后重试，或到供应商控制台删除文件；远端保留遵循供应商政策。上传尚未结束时，系统仍会登记晚到的文件标识并清理；相关任务结束前请保留原模型凭证。
 
@@ -609,6 +614,28 @@ Qwen 的 Key 需要与所选地域匹配。以上配置于 2026-10-19 根据官�
 - **离线演示**：仅在后端开启 `ENABLE_FAKE_PROVIDER` 时显示，无需 Key，可选择普通演示或固定资料演示。
 
 CLI 和浏览器需要各自登录；账号、后端服务和学习空间相同时，学习记录相通，本地登录会话不需要共享。
+
+### 知识地图
+
+左侧选择「知识地图」。学习目标是中心节点，知识点按前置关系展开；实线连接主分支，带箭头的虚线表示额外前置关联。同一知识点只显示一次，颜色与文字标明待诊断、学习中和已掌握。
+
+点击节点查看学习目标、模块、建议时长、有效证据及前置知识；点击详情中的关联节点可跳转定位。也可使用「定位知识点」下拉框查找较大脑图中的知识点。拖动画布平移，滚轮／双指缩放，工具栏提供放大、缩小和居中适配。键盘聚焦画布后可用方向键平移、加减号缩放、数字0适配；知识节点和关联按钮也支持键盘访问。
+
+脑图直接读取已有课程与学习状态，上传资料或通过学习对话补充的知识点会在刷新后显示。查看或拖动脑图不会修改掌握度和复习时间。手机端详情位于画布下方，整图缩小时可先用下拉框定位节点。
+
+### 学习对话
+
+左侧「学习对话」或概览／课堂的调整入口可打开Chat。明确需求自动保存，并显示前后差异；例如“每天15分钟，先学进程调度，使用面试例子”。支持目标、时间、日期、重点、讲解偏好和补充知识；模糊要求先澄清。聊天历史、需求版本和阶段路线保存在同一数据库，CLI的plan／next／learn读取同一结果。旧课堂可暂存并继续原题，已有学习证据与FSRS保留。
+
+失败可按原消息重试，刷新可恢复历史；当前版本校验后一次发布完整回复与计划。详细行为、演示范围、费用和故障恢复见[聊天指南](planning-chat.md)。
+
+### 每日任务与周报
+
+使用 `/login` 或 `/register` 进入个人账号。在「今日任务」查看今日安排、到期复习与计划建议；「学习概要」统一提供学习概览、近期统计、自然周报、间隔复习和学习记录五个同级标签，今日任务的「查看全部复习安排」会定位到报告内复习标签。后台运行和空间管理位于「模型与设置」标签中。日周统计使用现有数据自动生成，只有点击 AI 分析才调用模型。详情、时区规则、配额、升级与截图见[每日任务与周报指南](active-learning.md)，终端命令见[CLI指南](cli.md)。本地数据库与资料仍受现有忽略规则保护，登录账号的数据由后端隔离。
+
+### 成绩诊断
+
+Web 侧栏选择「成绩诊断」，上传老师批改后的 PDF 或 JPG／PNG。识别由当前用户配置的模型负责，PDF／图片能力需分别检测。报告展示逐题依据及状态变化，可靠单知识点结果自动更新知识状态和后续计划，模糊结果可核对。导入不会延后 FSRS 复习日期。见[详细指南](exam-diagnostics.md)。
 
 ## 九、配置项说明
 
@@ -704,7 +731,7 @@ study-agent --server http://127.0.0.1:8001 auth login --username yourname
 - 自定义模型地址默认进行 SSRF 检查，拒绝非公网地址；自托管内网模型需要管理员明确放开。
 - 模型输出经过结构化和业务规则校验，不能直接覆盖知识掌握度或执行服务器命令。
 - 日志和调用记录不保存密码、API Key 或敏感答案正文；作答本身由后端受权限控制的数据表保存。
-- 教学任务由用户操作触发；教材处理和远端清理会在本次上传／删除授权后于后台继续，有进度、取消和有界恢复。当前不实现主动学习提醒。
+- 教学任务由用户操作触发；教材处理和远端清理会在本次上传／删除授权后于后台继续，有进度、取消和有界恢复。日任务和周报统计自动运行，AI 分析由用户手动触发；不发送外部提醒。
 - 单次模型任务总时限为 90 秒，并有有界重试。令牌用量与可得费用信息会记录；服务商未提供可靠金额时明确显示“未提供”，当前不承诺货币预算硬限额。
 
 备份学习数据时，应同时妥善保管数据库和对应加密主密钥。直接换掉主密钥会导致已有密文无法解密；丢失后需要重新配置模型 API Key。
@@ -739,7 +766,7 @@ docker compose down
 
 通过可信反向代理提供 HTTPS 时，应设置 `COOKIE_SECURE=true` 和实际使用的 `FRONTEND_ORIGIN`，并保留默认的模型地址访问限制。多副本发布时，数据库迁移应作为独立发布步骤执行。
 
-当前应用内限流适合单实例 MVP，多副本部署需要共享限流设施或网关。Docker 配置已提供，但本次开发环境没有实际运行 Docker 容器；部署环境仍需单独验证。
+当前应用内限流适合单实例部署，多副本需要共享限流设施、共享文件存储与 PostgreSQL。使用 Docker 时，应在实际环境验证迁移、持久卷和反向代理配置。
 
 ## 十二、测试、构建与数据库迁移
 
@@ -773,7 +800,7 @@ npm --prefix frontend test
 npm --prefix frontend run build
 ```
 
-M1＋CLI 基线为 63 项 Python 与 3 项前端测试。M2 新增资料、原生接口和 CLI 资料回归，并重新运行 SQLite、PostgreSQL、前端与真实 HTTP 联调。最终结果与未验证的真实 BYOK／pgvector 范围见[验收记录](acceptance.md)。
+测试结果以当前运行输出为准；协议替身和演示数据不代表真实模型的内容质量、识别准确率或教育效果。
 
 ### PostgreSQL 集成测试
 
@@ -834,7 +861,7 @@ Study-Agent-Framework/
 │   ├── dev.sh                   # 同时启动后端和 Web 开发服务器
 │   ├── check.sh                 # 完整检查
 │   └── seed_demo.py             # 演示账号与数据
-├── docs/                        # API、架构、安全、CLI 和验收文档
+├── docs/                        # 使用指南、API、架构与安全文档
 ├── .env.example                 # 后端环境配置模板
 ├── Dockerfile
 ├── docker-compose.yml
@@ -843,7 +870,7 @@ Study-Agent-Framework/
 
 模型调用经过 Provider Adapter，状态更新由服务端原生 BKT／FSRS 与观测规范控制。框架采用一个主学习流程和确定性服务模块，不依靠多个模型互相对话推进学习。
 
-API 在线文档由 FastAPI 自动生成；保存的接口快照位于 [docs/openapi.json](openapi.json)。已包含教材与持久任务接口；复习调度和通知仍未实现。
+API 在线文档由 FastAPI 自动生成；保存的接口快照位于 [docs/openapi.json](openapi.json)。包含学习、教材、复习、计划对话、任务、周报、分析与试卷诊断接口；具体 schema 以运行版本为准。
 
 ## 十四、常见问题
 
@@ -918,53 +945,15 @@ study-agent space use SPACE_ID
 
 ### 能否上传教材或直接核实最新考纲
 
-阶段二已支持经过实际检测的 PDF 远端理解、检索和引用；详见[教材使用说明](m2-materials.md)。尚未实现可信联网核验，模型提取摘要与生成内容均需核实，不会自动标记成某年官方考试大纲。
+支持经过实际检测的 PDF 远端理解、检索和引用；详见[教材使用说明](materials.md)。尚未实现可信联网核验，模型提取摘要与生成内容均需核实，不会自动标记成某年官方考试大纲。
 
-## 十五、后续开发计划与文档
+## 十五、相关文档
 
-| 阶段 | 状态 | 计划内容 |
-|---|---|---|
-| M1：学习闭环 | 已实现，含 CLI | BYOK、目标、课程、诊断、教学、测评、持久化状态与推荐 |
-| M2：私人教材 | 已实现代码，真实 BYOK／pgvector 验收待执行 | PDF 远端理解、持久任务、教材检索、出处、删除与 CLI／Web |
-| M3：自适应提升 | 已实现，真实教育效果待评估 | 原生 BKT＋FSRS、间隔复习、报告与版本化评测 |
-| M4：主动陪伴 | 已实现，工程验证见验收记录 | 每日任务、到期复习、偏离建议、自然周报、手动分析配额与账号隔离；新提醒设置／授权控制模块取消 |
-
-开发按阶段推进；后续功能不会以虚假入口或伪造成功结果提前开放。
-
-- [原始开发规格](../StudyAgent_Framework_Development_Spec.md)：需求、硬约束、阶段任务与验收标准。
-- [CLI 使用说明](cli.md)：命令行专项说明。
-- [系统架构](architecture.md)：模块边界、数据库与状态重放。
-- [API 说明](api.md)：接口与错误约定。
-- [安全与隐私](security.md)：凭证、隔离、网络访问与部署边界。
-- [开发路线图](development-roadmap.md)：后续阶段规划。
-- [验收记录](acceptance.md)：已有验证证据和未验证范围。
-
-## 阶段三：复习、报告与算法版本
-
-所有空间统一运行原生 BKT＋FSRS。CLI 与 Web 共用后端，CLI 不计算概率或日期。先用 `study-agent review list` 查看 due／upcoming／unassessed，再用 `study-agent review start --concept CONCEPT_ID --request-id review-001` 开始或恢复；交互课堂可答题，也可用 `study-agent review submit REVIEW_ID --item ITEM_ID --answer A --rating good --request-id answer-001`。评分支持 again、hard、good、easy；提示或答错只能 again。`learn` 遇到 REVIEW 会进入同一复习会话。
-
-`study-agent algorithms` 查看必启算法与实际参数版本；`study-agent report --days 7`（或 30）查看状态变化、近期错误、复习保持率和任务完成率。所有命令支持 `--space SPACE_ID` 和主命令前的 `--json`。Web 对应「复习」「学习概要」；空报告显示证据不足，不伪造百分比。退出重登与刷新保留已提交数据。默认参数未针对真实用户校准。部署、离线校准与维护参见 [阶段三说明](m3-adaptive-learning.md)。
-
-
-## 使用知识脑图
-
-左侧选择「知识地图」。学习目标是中心节点，知识点按前置关系展开；实线连接主分支，带箭头的虚线表示额外前置关联。同一知识点只显示一次，颜色与文字标明待诊断、学习中和已掌握。
-
-点击节点查看学习目标、模块、建议时长、有效证据及前置知识；点击详情中的关联节点可跳转定位。也可使用「定位知识点」下拉框查找较大脑图中的知识点。拖动画布平移，滚轮／双指缩放，工具栏提供放大、缩小和居中适配。键盘聚焦画布后可用方向键平移、加减号缩放、数字0适配；知识节点和关联按钮也支持键盘访问。
-
-脑图直接读取已有课程与学习状态，上传资料或通过学习对话补充的知识点会在刷新后显示。查看或拖动脑图不会修改掌握度和复习时间。手机端详情位于画布下方，整图缩小时可先用下拉框定位节点。
-
-## 使用学习对话实时调整计划
-
-左侧「学习对话」或概览／课堂的调整入口可打开Chat。明确需求自动保存，并显示前后差异；例如“每天15分钟，先学进程调度，使用面试例子”。支持目标、时间、日期、重点、讲解偏好和补充知识；模糊要求先澄清。聊天历史、需求版本和阶段路线保存在同一数据库，CLI的plan／next／learn读取同一结果。旧课堂可暂存并继续原题，已有学习证据与FSRS保留。
-
-失败可按原消息重试，刷新可恢复历史；当前版本校验后一次发布完整回复与计划。详细行为、演示范围、费用和故障恢复见[聊天指南](planning-chat.md)。
-
-
-## M4 每日学习工作台
-
-使用 `/login` 或 `/register` 进入个人账号。在「今日任务」查看今日安排、到期复习与计划建议；「学习概要」统一提供学习概览、近期统计、自然周报、间隔复习和学习记录五个同级标签，侧栏不再单列概览、复习和记录。今日任务的「查看全部复习安排」会定位到报告内复习标签。后台运行和空间管理位于「模型与设置」标签中。站内消息页面已移除。日周统计使用现有数据自动生成，只有点击 AI 分析才调用模型。详情、时区规则、配额、升级与截图见[M4完整指南](m4-active-learning.md)，终端命令见[CLI指南](cli.md)。不新增提醒设置或授权与数据控制模块；本地数据库与资料仍受现有忽略规则保护，登录账号的数据由后端隔离。
-
-## 成绩诊断
-
-Web 侧栏选择「成绩诊断」，上传老师批改后的 PDF 或 JPG／PNG。识别由当前用户配置的模型负责，PDF／图片能力需分别检测。报告展示逐题依据及状态变化，可靠单知识点结果自动更新知识状态和后续计划，模糊结果可核对。导入不会延后 FSRS 复习日期。见[详细指南](exam-diagnostics.md)。
+- [文档索引](README.md)：按使用目的查找指南。
+- [CLI 使用说明](cli.md)：命令行、会话与脚本调用。
+- [私人教材](materials.md)：模型能力、上传、检索、引用与清理。
+- [知识掌握与复习](adaptive-learning.md)：BKT、FSRS、参数维护与重建。
+- [离线评测与校准](evaluation.md)：合成数据评测、候选参数与发布流程。
+- [每日任务与周报](active-learning.md)：日周规则、后台任务与手动分析配额。
+- [学习对话](planning-chat.md)与[成绩诊断](exam-diagnostics.md)：计划调整和已批改试卷。
+- [系统架构](architecture.md)、[API 参考](api.md)与[安全隐私](security.md)：模块、接口和部署边界。

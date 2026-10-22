@@ -1,6 +1,6 @@
-# 阶段三：原生 BKT 与 FSRS
+# 知识掌握与间隔复习
 
-每个新建或可用学习空间统一启用两个算法，没有关闭选项，也不回退到旧规则。开源项目见 [pyBKT](https://github.com/CAHLR/pyBKT) 与 [py-fsrs](https://github.com/open-spaced-repetition/py-fsrs)，版本、许可证见 THIRD_PARTY_NOTICES.md。
+每个学习空间统一启用 BKT 与 FSRS，分别维护技能掌握和记忆状态。开源项目见 [pyBKT](https://github.com/CAHLR/pyBKT) 与 [py-fsrs](https://github.com/open-spaced-repetition/py-fsrs)，版本、许可证见 [第三方声明](../THIRD_PARTY_NOTICES.md)。
 
 ## 知识与记忆
 
@@ -14,25 +14,25 @@ py-fsrs 6.3.2 实际运行 FSRS-6：Learning／Review／Relearning，四评分�
 
 报告支持 7／30 天窗口：知识状态分布、窗口前后事件重放、独立／辅助／不确定作答、近期错误与误区、到期安排。复习保持率为可靠复习中的独立正确比例；任务完成率为窗口内开始且已读、全部练习提交的课堂比例。无分母返回 null 与原因。读取报告、算法、Q-Matrix 和列表不创建学习事件。Q-Matrix 不返回答案或评分标准。
 
-CLI 用法见 [CLI 指南](cli.md)；Web 在左侧增加复习与学习报告。两端共用相同 API 和持久数据库。
+CLI 用法见 [CLI 指南](cli.md)；Web 在「学习概要」中提供近期统计和间隔复习。两端共用相同 API 和持久数据库。
 
 ## 安装与参数维护
 
-常规 setup 安装锁定的 pyBKT／fsrs／numpy／scikit-learn。numpy 2.3.5 与 sklearn 1.7.2 是实际验证的兼容组合；较新版本在原生 EM 或导入处失败。线上不需要加载 PyTorch；只有独立 FSRS 校准环境需要官方 optimizer extra。评测步骤见 [评测记录](m3-evaluation.md)。
+常规 setup 安装锁定的 pyBKT／fsrs／numpy／scikit-learn。依赖版本由 `backend/requirements.lock` 管理，升级算法与数值库后应重新验证原生拟合、重放与评测流程。线上不需要加载 PyTorch；独立 FSRS 校准环境使用官方 optimizer extra。评测步骤见 [离线评测与校准](evaluation.md)。
 
 参数产物为 JSON，验证库版本、参数范围和有限值；普通用户不能上传 pickle／代码。候选参数不能直接上线。先完成验证，再停止 API 写入与 worker，运行：
 
 ```bash
-.venv/bin/python -m app.evaluation validate --dataset backend/tests/fixtures/m3/sequences.json --parameters data/m3-evaluation/bkt-fit.json --output data/m3-evaluation/validated.json
-.venv/bin/python -m app.maintenance rebuild-algorithms --artifact data/m3-evaluation/validated.json --operation-id params-001
-# .env 设置 LEARNER_PARAMETERS_PATH=data/m3-evaluation/validated.json 后启动服务
+.venv/bin/python -m app.evaluation validate --dataset backend/tests/fixtures/m3/sequences.json --parameters data/evaluation/bkt-fit.json --output data/evaluation/validated.json
+.venv/bin/python -m app.maintenance rebuild-algorithms --artifact data/evaluation/validated.json --operation-id params-001
+# .env 设置 LEARNER_PARAMETERS_PATH=data/evaluation/validated.json 后启动服务
 ```
 
 维护会重放 BKT，调用原生 FSRS reschedule 重调度，保留原事件与日志版本，按空间提交并记录恢复进度。完成后服务必须加载同一产物；版本不一致返回需重建，不能混用状态。合成候选不应因技术校验通过而被称作对真实学习者已校准。
 
-## 一次性清空与日常启动
+## 管理员清空学习数据
 
-本次用户已授权清空所有旧空间及其学习记录、教材、任务、卡片、日志、索引与学习审计，保留账号、登录会话、密码哈希、模型配置和加密密钥。该动作仅通过显式管理命令执行，常规迁移／setup／serve 不会清空。维护默认预览，只输出计数与目标指纹：
+`reset-learning` 会清空目标范围内的学习空间及其学习记录、教材、任务、卡片、日志、索引与学习审计，保留账号、登录会话、密码哈希、模型配置和加密密钥。执行前应备份数据并确认清空范围。常规迁移／setup／serve 不会清空数据；维护命令默认仅预览计数与目标指纹：
 
 ```bash
 .venv/bin/python -m app.maintenance reset-learning --operation-id OPERATION_ID

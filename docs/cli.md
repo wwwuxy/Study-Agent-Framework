@@ -128,7 +128,7 @@ python -m app.cli --help
 本地 HTTP 开发后端需 `COOKIE_SECURE=false`；HTTPS 部署保持 `true`。`connection_failed` 时先检查后端是否运行，`no_active_space` 时先选择空间，`provider_not_tested` 时重新检测模型。本地状态损坏会明确报错并保留原文件，不会静默覆盖。
 
 
-## 阶段二资料命令
+## 教材与后台任务
 
 CLI 已加入 `provider add --files [--embedding-model ID]`、`--demo-files`、`material`、`job` 和 `space knowledge-policy`。资料命令均支持 `--space ID`，否则使用当前空间；任务命令通过全局 job ID 查询，服务端仍校验归属。
 
@@ -144,15 +144,15 @@ study-agent material download MATERIAL_ID --output /new/path/book.pdf
 study-agent material remove MATERIAL_ID
 ```
 
-`job show/run/wait/cancel/retry` 返回状态对象。wait 查询到 failed/cancelled 也会返回 JSON 状态，不把“查询成功”冒充“任务成功”；脚本须检查 `status == "succeeded"`。`--json`、`--server` 等全局选项必须放在主命令前。下载不覆盖已有文件；仅上传／重索引需要逐次 `--accept-file-transfer`，可选 `--embeddings` 表示额外授权远端向量生成。完整端点要求、恢复与清理说明见 [M2 使用文档](m2-materials.md)。
+`job show/run/wait/cancel/retry` 返回状态对象。wait 查询到 failed/cancelled 也会返回 JSON 状态，不把“查询成功”冒充“任务成功”；脚本须检查 `status == "succeeded"`。`--json`、`--server` 等全局选项必须放在主命令前。下载不覆盖已有文件；仅上传／重索引需要逐次 `--accept-file-transfer`，可选 `--embeddings` 表示额外授权远端向量生成。完整端点要求、恢复与清理说明见 [私人教材指南](materials.md)。
 
-## 阶段三：复习、报告与算法版本
+## 复习、报告与算法版本
 
 所有空间统一运行原生 BKT＋FSRS。CLI 与 Web 共用后端，CLI 不计算概率或日期。先用 `study-agent review list` 查看 due／upcoming／unassessed，再用 `study-agent review start --concept CONCEPT_ID --request-id review-001` 开始或恢复；交互课堂可答题，也可用 `study-agent review submit REVIEW_ID --item ITEM_ID --answer A --rating good --request-id answer-001`。评分支持 again、hard、good、easy；提示或答错只能 again。`learn` 遇到 REVIEW 会进入同一复习会话。
 
-`study-agent algorithms` 查看必启算法与实际参数版本；`study-agent report --days 7`（或 30）查看状态变化、近期错误、复习保持率和任务完成率。所有命令支持 `--space SPACE_ID` 和主命令前的 `--json`。Web 对应「复习」「学习报告」；空报告显示证据不足，不伪造百分比。退出重登与刷新保留已提交数据。默认参数未针对真实用户校准。部署、离线校准与维护参见 [阶段三说明](m3-adaptive-learning.md)。
+`study-agent algorithms` 查看必启算法与实际参数版本；`study-agent report --days 7`（或 30）查看状态变化、近期错误、复习保持率和任务完成率。所有命令支持 `--space SPACE_ID` 和主命令前的 `--json`。Web 对应「学习概要 → 间隔复习／近期统计」；空报告显示证据不足，不伪造百分比。退出重登与刷新保留已提交数据。默认参数未针对真实用户校准。部署、离线校准与维护参见 [算法与维护说明](adaptive-learning.md)。
 
-### M4：每日任务、站内消息与自然周报
+## 每日任务、消息与自然周报
 
 Web 和 CLI 使用同一组 HTTP API、同一数据库和登录账号；CLI 不在本地另算计划。
 
@@ -175,7 +175,7 @@ study-agent weekly list --limit 30
 study-agent weekly show SUMMARY_ID
 study-agent activity-jobs list
 study-agent activity-jobs retry JOB_ID   # 仅失败终止任务
-study-agent analysis-usage              # 本账号 UTC 日的 M4 分析配额
+study-agent analysis-usage              # 本账号 UTC 日的手动 AI 分析配额
 ```
 
 只有明确执行以下命令才请求一次 AI 分析（使用该空间已配置的模型，可能产生费用）。幂等键在超时后重试时应保持不变；失败后主动发起新尝试须使用新键，并用 `--retry-of` 指向原分析。

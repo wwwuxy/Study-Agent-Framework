@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="300" viewBox="0 0 1000 300" role="img" aria-label="学习证据通过 BKT 估计知识，通过 FSRS 安排记忆复习，两端共用后端">
-<rect width="1000" height="300" rx="20" fill="#f5f4ed"/><g font-family="system-ui,sans-serif" text-anchor="middle" fill="#273d34"><text x="500" y="42" font-size="22" font-weight="700">同一份学习证据 · ONE SHARED LEARNING RECORD</text>
-<rect x="30" y="95" width="220" height="125" rx="14" fill="#fff" stroke="#9daa90"/><text x="140" y="135" font-size="22" font-weight="700">CLI + Web</text><text x="140" y="165" font-size="16">独立 / 提示 / 错误</text><text x="140" y="190" font-size="14">Answers + evidence</text>
-<path d="M250 157H302M302 157V105H345M302 157V210H345" fill="none" stroke="#879878" stroke-width="3"/>
-<rect x="345" y="65" width="290" height="95" rx="14" fill="#e4eddf"/><text x="490" y="100" font-size="22" font-weight="700">pyBKT · 技能掌握</text><text x="490" y="132" font-size="15">Knowledge tracing / 未观测 → 学习 → 掌握</text>
-<rect x="345" y="177" width="290" height="95" rx="14" fill="#e0e9ee"/><text x="490" y="212" font-size="22" font-weight="700">py-fsrs · 记忆复习</text><text x="490" y="244" font-size="15">Memory / Learning · Review · Relearning</text>
-<path d="M635 110H685V157H735M635 222H685V157" fill="none" stroke="#879878" stroke-width="3"/>
-<rect x="735" y="95" width="235" height="125" rx="14" fill="#fff" stroke="#9daa90"/><text x="852" y="135" font-size="22" font-weight="700">下一步与报告</text><text x="852" y="165" font-size="16">前置约束 · 到期 · 证据</text><text x="852" y="190" font-size="14">Next action + 7 / 30-day report</text></g></svg>

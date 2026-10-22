@@ -176,7 +176,7 @@ AI 分析默认每日最多 10 次、100,000 Token，同一账号的空间共享
 - **检索方式**：默认关键词检索与模型精排；配置并检测远端 Embedding 后可选向量检索。模型给出的章节、摘要与页码仍需结合原文核对。
 - **资料清理**：删除教材会清除本地原文与索引，并尝试清理远端文件；删除已完成诊断会撤回其导入证据并重算知识状态。远端保留以服务商政策为准。
 
-详细步骤见[私人教材指南](docs/m2-materials.md)和[成绩诊断指南](docs/exam-diagnostics.md)。
+详细步骤见[私人教材指南](docs/materials.md)和[成绩诊断指南](docs/exam-diagnostics.md)。
 
 <a id="cli"></a>
 
@@ -290,15 +290,17 @@ TEST_DATABASE_URL='postgresql+psycopg://user:password@localhost/study_agent_test
 
 ## 完整文档
 
+按使用目的查找指南，见[文档索引](docs/README.md)。
+
 | 文档 | 内容 |
 |---|---|
 | [中文完整手册](docs/usage.zh-CN.md) | 安装、部署、配置、命令与故障排查 |
 | [学习对话](docs/planning-chat.md) | 计划调整、暂存课堂、失败恢复与数据边界 |
-| [每日任务与周报](docs/m4-active-learning.md) | 今日安排、复习、建议、AI 分析额度与后台运行 |
-| [私人教材](docs/m2-materials.md) | PDF 能力、索引、引用、删除和向量检索 |
+| [每日任务与周报](docs/active-learning.md) | 今日安排、复习、建议、AI 分析额度与后台运行 |
+| [私人教材](docs/materials.md) | PDF 能力、索引、引用、删除和向量检索 |
 | [成绩诊断](docs/exam-diagnostics.md) | 图片／PDF 要求、逐题报告、核对与证据撤回 |
 | [CLI 指南](docs/cli.md) | 交互学习、JSON、会话与命令参考 |
-| [掌握评估与复习](docs/m3-adaptive-learning.md) · [离线评测](docs/m3-evaluation.md) | BKT、FSRS、参数与评测方法 |
+| [掌握评估与复习](docs/adaptive-learning.md) · [离线评测](docs/evaluation.md) | BKT、FSRS、参数与评测方法 |
 | [架构](docs/architecture.md) · [API](docs/api.md) · [OpenAPI](docs/openapi.json) | 模块、数据模型与接口 |
 | [安全与隐私](docs/security.md) | 数据处理方式、凭证保护与部署建议 |
 

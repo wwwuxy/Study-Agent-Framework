@@ -1,19 +1,28 @@
-# M1 / M2 / M3 架构与数据库
+# 系统架构与数据库
 
-此实现遵循原规格第 10.1 节，按顺序实现 M1、M2、M3。一个确定性 Orchestrator 协调模块，不创建模型间对话。
+项目采用模块化单体架构。React Web 与 Python CLI 共用 FastAPI 后端；业务模块通过确定性流程协调模型调用、学习证据、掌握估计与复习调度。教材和试卷任务由数据库持久队列驱动，Worker 随应用启动。
 
 ```mermaid
 flowchart LR
   UI[React 学习工作台] --> API[FastAPI 与用户鉴权]
-  API --> O[Learning Orchestrator]
-  O --> G[Provider Adapter]
-  G --> L[用户远端聊天 API]
-  O --> K[课程 DAG 校验]
+  CLI[Python CLI] --> API
+  API --> O[学习流程协调]
+  API --> CHAT[学习对话与计划修订]
+  API --> JOBS[教材与试卷持久任务]
+  API --> ACT[每日任务与周报]
   O --> E[教学与评分]
   E --> EV[只追加学习事件]
-  EV --> S[pyBKT 状态重放]
+  EV --> S[BKT 掌握估计 / FSRS 复习]
   S --> P[确定性下一步策略]
-  K --> DB[(PostgreSQL / SQLite 开发)]
+  O --> G[Provider Adapter]
+  CHAT --> G
+  JOBS --> G
+  G --> L[用户远端模型 API]
+  JOBS --> FS[(私有文件存储)]
+  O --> DB[(SQLite / PostgreSQL)]
+  CHAT --> DB
+  JOBS --> DB
+  ACT --> DB
   P --> DB
   EV --> DB
 ```
@@ -24,7 +33,7 @@ CLI（`backend/app/cli`）是与 Web 并列的 HTTP 客户端。命令入口 `st
 
 `ProviderAdapter` 提供文本、严格 JSON、能力探测和明确拒绝的文件 / Embedding 方法。网关不能直接更新学习状态。所有课程、题目、讲解、提示与开放评分先经过 Pydantic / JSON Schema，再经过 DAG、知识点归属和题目唯一性检查。
 
-教学模型调用同步等待返回，事务在完整校验后保存。M2 新增数据库持久队列，用户授权的资料任务在后台分步运行；各远端步骤有界并记录检查点。调用失败保留脱敏 AgentRun；索引原子发布，课程、题目与状态不留半成品。
+教学模型调用同步等待返回，事务在完整校验后保存。教材与试卷使用数据库持久队列，用户授权的资料任务在后台分步运行；各远端步骤有界并记录检查点。调用失败保留脱敏 AgentRun；索引原子发布，课程、题目与状态不留半成品。
 
 ## 数据表
 
@@ -54,10 +63,10 @@ PostgreSQL 对用户行加锁串行化同一用户的写操作，同时使用唯
 
 观测规范只接受高置信、可归因证据；以题目 ID 去重。不同模型版本可通过 `profile/rebuild` 重新计算当前 BKT 状态，原事件不变。事件与状态中的时间统一为 UTC，避免数据库会话时区影响重放。
 
-策略先过滤所有前置未满足的知识点，再按目标重要性、可用时长排序。最多五次初始诊断作答优先级，之后进入基础学习，避免永久诊断循环。复习 / 遗忘模型属于 M3。
+策略先过滤所有前置未满足的知识点，再按目标重要性、可用时长排序。最多五次初始诊断作答优先级，之后进入基础学习，避免永久诊断循环。复习时间由 FSRS 独立维护。
 
 
-## M2 文件、任务与检索
+## 文件、任务与检索
 
 - `material_assets`：用户/空间复合外键、原始文件元数据、哈希、上传幂等指纹、索引代次、原服务商指纹、待清理远端句柄；不复制旧密钥。
 - `material_sections`：远端摘要、关键词与概念、未经核实的章节定位、可选远端向量 JSON；空间/资料复合外键。
@@ -68,13 +77,13 @@ PostgreSQL 对用户行加锁串行化同一用户的写操作，同时使用唯
 
 检索限定本人、空间与 ready 资料，关键词／远端向量产生候选，用户模型只可从候选 ID 精排。新的诊断与课堂先取资料证据，默认证据不足停止；通用补充需空间显式授权。模型返回的引用经白名单与存活来源校验，读取时再次过滤已删除来源。概念来源可补充，但不生成作答证据；新概念同时初始化 BKT 未观测状态与 FSRS 未学习卡片，不将上传当作学习证据。
 
-默认单实例 worker；SQLite 仅用于单进程开发。多副本应使用 PostgreSQL、共享资料存储与共享限流。当前租约提供崩溃恢复，远端上传请求在未收到响应时可能存在无法确认的远端保留，需遵循服务商政策核对。M3、M4 已实现；边界见各阶段验收记录。
+默认单实例 worker；SQLite 仅用于单进程开发。多副本应使用 PostgreSQL、共享资料存储与共享限流。当前租约提供崩溃恢复，远端上传请求在未收到响应时可能存在无法确认的远端保留，需遵循服务商政策核对。
 
-## M3 算法与事务
+## 掌握估计、复习与事务
 
 `learner/evidence.py` 负责可靠性、去重、辅助类别，`learner/bkt.py` 调用 pyBKT 原生前向推断；CPU 计算放在线程池，ORM Session 留在请求线程。`reviews/fsrs_adapter.py` 调用原生 Card／Scheduler／ReviewLog；知识状态与记忆状态分表保存。`teaching/attempts.py` 是普通答题与复习的共同入口，事件、BKT、FSRS 日志、尝试和计划同事务提交，失败整体回滚。每用户写锁、事件唯一日志与幂等摘要共同防止重复计分。
 
-0004 增加 ReviewState、ReviewSession、ReviewLogRecord、MaintenanceOperation 与空间算法元数据；外键绑定用户、空间、概念、课堂和题目。原事件与原生日志留存，参数升级通过显式维护命令重建派生状态。常规启动和迁移不执行学习数据清空。离线训练环境独立，在线服务不训练。
+ReviewState、ReviewSession、ReviewLogRecord、MaintenanceOperation 保存复习及维护状态；外键绑定用户、空间、概念、课堂和题目。原事件与原生日志留存，参数升级通过显式维护命令重建派生状态。常规启动和迁移不执行学习数据清空。离线训练环境独立，在线服务不训练。
 
 
 ## 学习计划聊天
@@ -86,13 +95,13 @@ ChatTurn负责回合身份与状态，LearningIntent保存版本化需求／路�
 Lesson.status的active／paused与completed区分。当前课堂优先读取未完成活动课堂，暂存复习释放活动概念占位，不制造作答或重调度。登出数据库撤销在线程完成，避免等待短发布锁时阻塞ASGI；只有聊天短事务持有AuthSession行锁，长教学调用沿用用户锁而不持有该会话锁。
 
 
-## M4 主动学习
+## 每日任务与周报
 
-`activity/` 管理日周时区边界、纯数据快照、每日协调、建议与消息、周报、配额及手动分析。0006新增PeriodicJob／DailyPlan／DailyTask／LearningSuggestion／InboxMessage／WeeklySummary／AnalysisRun／AnalysisDailyUsage。用户空间复合外键与统一User→Space→业务对象锁序保护归属与并发；空间删除共用服务按依赖顺序清理，账号用量聚合保留。
+`activity/` 管理日周时区边界、纯数据快照、每日协调、建议与消息、周报、配额及手动分析。PeriodicJob／DailyPlan／DailyTask／LearningSuggestion／InboxMessage／WeeklySummary／AnalysisRun／AnalysisDailyUsage 分别保存周期任务、待办、建议、消息、周报和分析用量。用户空间复合外键与统一User→Space→业务对象锁序保护归属与并发；空间删除共用服务按依赖顺序清理，账号用量聚合保留。
 
-lifespan管理独立M4循环，默认60秒扫描，只有 daily_coordinate／weekly_summary 两种无模型处理器；短数据库阶段在线程内建立自己的Session，远端分析等待释放锁。PostgreSQL使用行锁与SKIP LOCKED，SQLite只支持单实例应用锁。租约校验、周期唯一键、三次尝试／退避／死信和同事务消息防止重复发布。手动分析单独准备／调用／发布，不被自动重试。
+lifespan管理独立周期任务循环，默认60秒扫描，只有 daily_coordinate／weekly_summary 两种无模型处理器；短数据库阶段在线程内建立自己的Session，远端分析等待释放锁。PostgreSQL使用行锁与SKIP LOCKED，SQLite只支持单实例应用锁。租约校验、周期唯一键、三次尝试／退避／死信和同事务消息防止重复发布。手动分析单独准备／调用／发布，不被自动重试。
 
-前端AuthPage分离登录注册；会话代次过滤迟到401；任务／周报以用户与空间为key重建请求作用域，资源代次与稳定请求键防止串号和重复提交。CLI映射同一组HTTP接口，不在本地重算计划。详见[M4指南](m4-active-learning.md)。
+前端AuthPage分离登录注册；会话代次过滤迟到401；任务／周报以用户与空间为key重建请求作用域，资源代次与稳定请求键防止串号和重复提交。CLI映射同一组HTTP接口，不在本地重算计划。详见[每日任务与周报指南](active-learning.md)。
 
 ## 已批改试卷诊断
 
