@@ -311,7 +311,9 @@ See the [documentation index](docs/README.md) for all guides and technical refer
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party dependencies and notices.
+This project is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE), which permits noncommercial use, modification and distribution under its terms and does not grant general commercial use rights. The license text governs all permitted purposes, including its provisions for use by the listed organizations.
+
+This is a source-available project; the license is not an OSI-approved open source license. Third-party dependencies remain subject to their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party dependencies and notices.
 
 ---
 

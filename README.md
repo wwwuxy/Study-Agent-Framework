@@ -306,7 +306,9 @@ TEST_DATABASE_URL='postgresql+psycopg://user:password@localhost/study_agent_test
 
 ## 许可证
 
-本项目采用 [MIT 许可证](LICENSE)。第三方依赖及其声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+本项目采用 [PolyForm Noncommercial License 1.0.0](LICENSE)，允许按许可证条款进行非商业使用、修改和分发，不授予一般商业使用权限。具体获准用途（包括许可证列明的机构使用）以许可证原文为准。
+
+本项目属于源码可用（source-available）项目，该许可证不属于 OSI 认可的开源许可证。第三方依赖仍遵循各自的许可证，相关声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ---
 

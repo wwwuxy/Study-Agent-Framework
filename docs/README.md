@@ -31,4 +31,4 @@
 - 默认 BKT／FSRS 参数尚未针对真实学习者校准；合成数据上的指标不证明学习效果。
 - SQLite 用于单进程部署。多副本需 PostgreSQL、共享私有文件存储与共享限流；Docker 和可选 pgvector 路径应在实际环境验证。
 
-项目采用 [MIT 许可证](../LICENSE)，第三方依赖声明见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。
+项目采用 [PolyForm Noncommercial License 1.0.0](../LICENSE)，允许按许可证条款进行非商业使用、修改和分发，不授予一般商业使用权限；具体获准用途以许可证原文为准。本项目属于源码可用（source-available）项目，该许可证不属于 OSI 认可的开源许可证。第三方依赖仍遵循各自的许可证，相关声明见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。
